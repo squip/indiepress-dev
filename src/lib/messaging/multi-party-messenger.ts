@@ -5,15 +5,12 @@ import NDK, {
   NDKPrivateKeySigner,
   NDKRelaySet,
   NDKSubscription,
-  NDKUser,
-  type NostrEvent
+  NDKUser
 } from '@nostr-dev-kit/ndk'
-import { bytesToHex } from '@noble/hashes/utils'
 import type { ConversationMeta, DMMessage, MessengerEvent, SendMessageOptions } from './types'
 import { MultiPartyNIP17Protocol } from './nip17-protocol'
 import { MemoryStorage, type StorageAdapter } from './storage'
 import { SimpleEmitter } from './emitter'
-import * as nip19 from '@nostr/tools/nip19'
 
 type MessengerOptions = {
   discoveryRelay?: string
@@ -99,6 +96,10 @@ export class MultiPartyMessenger {
     if (!this.myPubkey) await this.start()
     const wraps = await this.protocol.sendMessage(participants, content, opts)
     const senderPubkey = this.myPubkey!
+    const tags = []
+    if (opts.subject) tags.push(['subject', opts.subject])
+    if (opts.replyTo) tags.push(['e', opts.replyTo])
+
     const rumorMessage: DMMessage = {
       id: wraps[0]?.id ?? `${Date.now()}`,
       type: 'text',
@@ -108,11 +109,45 @@ export class MultiPartyMessenger {
       timestamp: Math.floor(Date.now() / 1000),
       protocol: 'nip17',
       read: true,
-      conversationId: this.conversationIdFromParticipants([...participants.map((p) => p.pubkey), senderPubkey]),
-      replyTo: opts.replyTo
+      conversationId: this.conversationIdFromParticipants([
+        ...participants.map((p) => p.pubkey),
+        senderPubkey
+      ]),
+      replyTo: opts.replyTo,
+      tags
     }
     await this.persistMessage(rumorMessage)
     return [rumorMessage]
+  }
+
+  async sendReaction(
+    conversationId: string,
+    targetEventId: string,
+    content = '+'
+  ): Promise<DMMessage | null> {
+    if (!this.myPubkey) await this.start()
+    const meta = this.conversations.get(conversationId)
+    if (!meta) return null
+    const participants = meta.participants.map((p) => new NDKUser({ pubkey: p }))
+    const wraps = await this.protocol.sendReaction(participants, {
+      targetEventId,
+      content
+    })
+    const message: DMMessage = {
+      id: wraps[0]?.id ?? `${Date.now()}`,
+      type: 'reaction',
+      content,
+      sender: new NDKUser({ pubkey: this.myPubkey! }),
+      recipients: participants.filter((p) => p.pubkey !== this.myPubkey),
+      timestamp: Math.floor(Date.now() / 1000),
+      protocol: 'nip17',
+      read: true,
+      conversationId,
+      replyTo: targetEventId,
+      tags: [['e', targetEventId]]
+    }
+    await this.persistMessage(message)
+    return message
   }
 
   async markConversationRead(conversationId: string) {
@@ -126,6 +161,7 @@ export class MultiPartyMessenger {
       const meta = this.conversations.get(conversationId)
       if (meta) {
         meta.unreadCount = 0
+        await this.storage.saveConversation(meta)
         this.emit({ type: 'conversation-updated', conversation: meta })
       }
     }
@@ -161,10 +197,9 @@ export class MultiPartyMessenger {
     })
   }
 
-  private async handleIncomingGiftWrap(evt: NostrEvent) {
+  private async handleIncomingGiftWrap(evt: NDKEvent) {
     if (!this.myPubkey) return
-    const ndkEvt = new NDKEvent(this.ndk, evt)
-    const rumor = await this.protocol.unwrapMessage(ndkEvt)
+    const rumor = await this.protocol.unwrapMessage(evt)
     if (!rumor) return
     const message = this.protocol.rumorToMessage(rumor, this.myPubkey)
     await this.persistMessage(message)
@@ -257,16 +292,12 @@ export class MultiPartyMessenger {
 }
 
 export function createNDKWithSigner(
-  nsec: string,
+  secret: string | Uint8Array,
   explicitRelayUrls: string[],
   discoveryRelay = DEFAULT_DISCOVERY,
   cacheAdapter?: any
 ) {
-  const decoded = nip19.decode(nsec)
-  if (decoded.type !== 'nsec') {
-    throw new Error('Invalid nsec for NIP-17 messenger')
-  }
-  const signer = new NDKPrivateKeySigner(bytesToHex(decoded.data as Uint8Array))
+  const signer = new NDKPrivateKeySigner(secret as any)
   const ndk = new NDK({
     explicitRelayUrls: Array.from(new Set([...(explicitRelayUrls || []), discoveryRelay])),
     signer,
