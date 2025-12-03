@@ -1,22 +1,14 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
-import ConversationList from '@/components/ConversationList'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
-import { usePrimaryPage } from '@/PageManager'
 import { MessageSquare } from 'lucide-react'
-import { forwardRef, useEffect, useRef } from 'react'
+import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MessengerProvider } from '@/providers/MessengerProvider'
+import { DMConversationsView } from '@/components/DMConversations'
+import { useNostr } from '@/providers/NostrProvider'
 
 const ConversationListPage = forwardRef((_, ref) => {
-  const { current } = usePrimaryPage()
-  const firstRenderRef = useRef(true)
-  const conversationListRef = useRef<{ refresh: () => void }>(null)
-
-  useEffect(() => {
-    if (current === 'conversations' && !firstRenderRef.current) {
-      conversationListRef.current?.refresh()
-    }
-    firstRenderRef.current = false
-  }, [current])
+  const { pubkey } = useNostr()
 
   return (
     <PrimaryPageLayout
@@ -25,7 +17,9 @@ const ConversationListPage = forwardRef((_, ref) => {
       titlebar={<ConversationListPageTitlebar />}
       displayScrollToTopButton
     >
-      <ConversationList ref={conversationListRef} />
+      <MessengerProvider>
+        <DMConversationsView myPubkey={pubkey} />
+      </MessengerProvider>
     </PrimaryPageLayout>
   )
 })
