@@ -319,7 +319,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     if (needScrollToTop) {
       PRIMARY_PAGE_REF_MAP[page].current?.scrollToTop('smooth')
     }
-    if (enableSingleColumnLayout) {
+    if (enableSingleColumnLayout || page !== 'conversations') {
       clearSecondaryPages()
     }
   }

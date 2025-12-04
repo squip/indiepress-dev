@@ -1,6 +1,6 @@
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { useSecondaryPage } from '@/PageManager'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, Users } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useMessenger } from '@/providers/MessengerProvider'
@@ -14,18 +14,19 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import Username, { SimpleUsername } from '@/components/Username'
-import { SimpleUserAvatar } from '@/components/UserAvatar'
+import UserAvatar, { SimpleUserAvatar } from '@/components/UserAvatar'
 import client from '@/services/client.service'
 import { cn } from '@/lib/utils'
 
 const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { pop } = useSecondaryPage()
   const conversationId = useMemo(() => window.location.pathname.split('/').pop() || '', [])
-  const { conversations } = useMessenger()
+  const { conversations, messenger } = useMessenger()
   const { pubkey } = useNostr()
   const meta = conversations.find((c) => c.id === conversationId)
   const [showMembers, setShowMembers] = useState(false)
   const [nameMap, setNameMap] = useState<Record<string, string>>({})
+  const [groupImage, setGroupImage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -67,6 +68,24 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
           <Button variant="ghost" size="titlebar-icon" onClick={() => pop()}>
             <ChevronLeft />
           </Button>
+          <div className="flex items-center gap-2">
+            {meta?.participants && meta.participants.length <= 2 ? (
+              <UserAvatar
+                userId={meta.participants.find((p) => p !== pubkey) || meta.participants[0]}
+                size="small"
+              />
+            ) : groupImage ? (
+              <img
+                src={groupImage}
+                alt="Conversation"
+                className="w-8 h-8 rounded-full object-cover border"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center border">
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className={cn(
