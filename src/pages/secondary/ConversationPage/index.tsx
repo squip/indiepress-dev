@@ -59,6 +59,21 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
     return meta.participants.map((p) => nameMap[p] || p).join(', ')
   }, [meta?.participants, nameMap])
 
+  useEffect(() => {
+    if (!meta || !messenger) return
+    let cancelled = false
+    ;(async () => {
+      const msgs = await messenger.getConversationMessages(meta.id, 1)
+      if (cancelled) return
+      const first = msgs?.[0]
+      const imageTag = first?.tags?.find((t) => ['image', 'img', 'picture', 'avatar'].includes(t[0]))
+      setGroupImage(imageTag?.[1] ?? null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [meta?.id, messenger])
+
   return (
     <SecondaryPageLayout
       ref={ref}
