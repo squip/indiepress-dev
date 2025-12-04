@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMessenger } from '@/providers/MessengerProvider'
 import type { ConversationMeta, DMMessage } from '@/lib/messaging/types'
-import SearchInput from '@/components/SearchInput'
 import UserAvatar from '@/components/UserAvatar'
-import { Users } from 'lucide-react'
+import { Users, Search } from 'lucide-react'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 import { SimpleUsername } from '@/components/Username'
+import { Input } from '@/components/ui/input'
 
 type ConversationMessageMeta = {
   first?: DMMessage | null
@@ -79,12 +79,22 @@ export function ConversationListPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 pb-2">
-        <SearchInput
-          value={filter}
-          onChange={(e) => setFilter((e?.target as HTMLInputElement).value)}
-          placeholder="Search conversations"
-        />
+      <div className="sticky flex items-center top-12 bg-background z-30 px-4 py-2 w-full border-b">
+        <div
+          tabIndex={0}
+          className="relative flex w-full items-center rounded-md border border-input px-3 py-1 text-base transition-colors md:text-sm [&:has(:focus-visible)]:ring-ring [&:has(:focus-visible)]:ring-1 [&:has(:focus-visible)]:outline-none bg-surface-background shadow-inner h-full border-none"
+        >
+          <Search className="size-4 shrink-0 opacity-50" />
+          <Input
+            type="text"
+            placeholder="Search conversations"
+            value={filter}
+            onChange={(e) => setFilter((e?.target as HTMLInputElement).value)}
+            showClearButton
+            onClear={() => setFilter('')}
+            className="flex-1 h-9 size-full shadow-none border-none bg-transparent focus:outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
+          />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto bg-background">
         {sorted.map((c) => (
