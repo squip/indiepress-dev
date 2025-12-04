@@ -20,6 +20,7 @@ import SearchPage from './pages/secondary/SearchPage'
 import SettingsPage from './pages/secondary/SettingsPage'
 import TranslationPage from './pages/secondary/TranslationPage'
 import WalletPage from './pages/secondary/WalletPage'
+import ConversationPage from './pages/secondary/ConversationPage'
 
 const ROUTES = [
   { path: '/notes', element: <NoteListPage /> },
@@ -30,6 +31,7 @@ const ROUTES = [
   { path: '/users/:id/relays', element: <OthersRelaySettingsPage /> },
   { path: '/relays/:url', element: <RelayPage /> },
   { path: '/relays/:url/reviews', element: <RelayReviewsPage /> },
+  { path: '/conversations/:id', element: <ConversationPage /> },
   { path: '/search', element: <SearchPage /> },
   { path: '/settings', element: <SettingsPage /> },
   { path: '/settings/relays', element: <RelaySettingsPage /> },

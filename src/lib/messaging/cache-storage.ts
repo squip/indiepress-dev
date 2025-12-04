@@ -55,11 +55,19 @@ export class CacheStorage implements StorageAdapter {
       await this.adapter.registerModule(moduleDefinition)
     }
 
-    this.messages = await (this.adapter as any).getCollection<DMMessage>(MODULE_NAMESPACE, 'messages')
-    this.conversations = await (this.adapter as any).getCollection<ConversationMeta>(
-      MODULE_NAMESPACE,
-      'conversations'
-    )
+    const messages = await (this.adapter as unknown as {
+      getCollection: (namespace: string, collection: string) => Promise<CacheModuleCollection<DMMessage>>
+    }).getCollection(MODULE_NAMESPACE, 'messages')
+
+    const conversations = await (this.adapter as unknown as {
+      getCollection: (
+        namespace: string,
+        collection: string
+      ) => Promise<CacheModuleCollection<ConversationMeta>>
+    }).getCollection(MODULE_NAMESPACE, 'conversations')
+
+    this.messages = messages
+    this.conversations = conversations
   }
 
   private async ensureReady() {

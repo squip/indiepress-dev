@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '../ui/button'
-import { Input } from '../ui/input'
-import { Textarea } from '../ui/textarea'
 import { useMessenger } from '@/providers/MessengerProvider'
-import { NDKUser } from '@nostr-dev-kit/ndk'
 import type { ConversationMeta, DMMessage } from '@/lib/messaging/types'
+import SearchInput from '@/components/SearchInput'
+import UserAvatar from '@/components/UserAvatar'
+import { Users } from 'lucide-react'
+import { FormattedTimestamp } from '@/components/FormattedTimestamp'
+import { SimpleUsername } from '@/components/Username'
+
+type ConversationMessageMeta = {
+  first?: DMMessage | null
+  last?: DMMessage | null
+  unread?: number
+}
 
 function deriveDisplayName(meta: ConversationMeta, myPubkey: string | null): string {
   if (meta.subject) return meta.subject
@@ -14,99 +21,53 @@ function deriveDisplayName(meta: ConversationMeta, myPubkey: string | null): str
   return `${others[0]} +${others.length - 1}`
 }
 
-export function DMConversationsView({ myPubkey }: { myPubkey: string | null }) {
+export function ConversationListPanel({
+  myPubkey,
+  onOpenConversation
+}: {
+  myPubkey: string | null
+  onOpenConversation: (id: string) => void
+}) {
   const { messenger, conversations, ready, unsupportedReason } = useMessenger()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [conversationMessages, setConversationMessages] = useState<Record<string, DMMessage[]>>({})
-  const [newMembers, setNewMembers] = useState('')
-  const [subject, setSubject] = useState('')
-  const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
-  const [replyTarget, setReplyTarget] = useState<DMMessage | null>(null)
-  const [reactionSendingId, setReactionSendingId] = useState<string | null>(null)
+  const [filter, setFilter] = useState('')
+  const [messageMeta, setMessageMeta] = useState<Record<string, ConversationMessageMeta>>({})
 
   useEffect(() => {
-    if (conversations.length && !selectedId) {
-      setSelectedId(conversations[0].id)
-    }
-  }, [conversations, selectedId])
-
-  useEffect(() => {
-    if (!selectedId || !messenger) return
-    messenger.getConversationMessages(selectedId).then((msgs) => {
-      setConversationMessages((prev) => ({ ...prev, [selectedId]: msgs }))
-    })
-    messenger.markConversationRead(selectedId)
-  }, [selectedId, messenger])
-
-  const selectedConversation = useMemo(
-    () => conversations.find((c) => c.id === selectedId) || null,
-    [conversations, selectedId]
-  )
-
-  const handleSend = async () => {
-    if (!messenger || !selectedConversation || !draft.trim()) return
-    setSending(true)
-    try {
-      const participants = selectedConversation.participants.map((p) => new NDKUser({ pubkey: p }))
-      const msgs = await messenger.sendMessage(participants, draft, {
-        replyTo: replyTarget?.id
-      })
-      setConversationMessages((prev) => {
-        const list = prev[selectedConversation.id] || []
-        return { ...prev, [selectedConversation.id]: [...list, ...msgs] }
-      })
-      setDraft('')
-      setReplyTarget(null)
-      await messenger.markConversationRead(selectedConversation.id)
-    } catch (err) {
-      console.error('Failed to send DM', err)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const handleCreateConversation = async () => {
     if (!messenger) return
-    const pubkeys = newMembers
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean)
-    if (!pubkeys.length) return
-    const participants = pubkeys.map((p) => new NDKUser({ pubkey: p }))
-    setSending(true)
-    try {
-      const msgs = await messenger.sendMessage(participants, '(conversation created)', { subject })
-      const convId =
-        msgs[0]?.conversationId ||
-        pubkeys.concat(myPubkey || '').sort().join(':')
-      setSelectedId(convId)
-      setNewMembers('')
-      setSubject('')
-    } catch (err) {
-      console.error('Failed to create conversation', err)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const handleReact = async (message: DMMessage, emoji = '👍') => {
-    if (!messenger || !selectedConversation) return
-    setReactionSendingId(message.id)
-    try {
-      const reaction = await messenger.sendReaction(selectedConversation.id, message.id, emoji)
-      if (reaction) {
-        setConversationMessages((prev) => {
-          const list = prev[selectedConversation.id] || []
-          return { ...prev, [selectedConversation.id]: [...list, reaction] }
+    let cancelled = false
+    ;(async () => {
+      const entries = await Promise.all(
+        conversations.map(async (c) => {
+          const msgs = await messenger.getConversationMessages(c.id)
+          const last = msgs.length ? msgs[msgs.length - 1] : null
+          const first = msgs[0] || null
+          const unread = msgs.filter(
+            (m) => !m.read && m.sender.pubkey !== myPubkey
+          ).length
+          return [c.id, { last, first, unread }] as const
         })
+      )
+      if (!cancelled) {
+        setMessageMeta(Object.fromEntries(entries))
       }
-    } catch (err) {
-      console.error('Failed to send reaction', err)
-    } finally {
-      setReactionSendingId(null)
+    })()
+    return () => {
+      cancelled = true
     }
-  }
+  }, [conversations, messenger, myPubkey])
+
+  const filtered = useMemo(() => {
+    return conversations.filter((c) => {
+      if (!filter.trim()) return true
+      const name = deriveDisplayName(c, myPubkey).toLowerCase()
+      return name.includes(filter.toLowerCase())
+    })
+  }, [conversations, filter, myPubkey])
+
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0)),
+    [filtered]
+  )
 
   if (unsupportedReason) {
     return <div className="p-4 text-sm text-muted-foreground">{unsupportedReason}</div>
@@ -117,124 +78,129 @@ export function DMConversationsView({ myPubkey }: { myPubkey: string | null }) {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 h-full">
-      <div className="border rounded-lg p-3 space-y-3 overflow-y-auto">
-        <div className="space-y-2">
-          <Input
-            value={newMembers}
-            onChange={(e) => setNewMembers(e.target.value)}
-            placeholder="Add recipients (comma-separated pubkeys)"
+    <div className="flex flex-col h-full">
+      <div className="px-4 pb-2">
+        <SearchInput
+          value={filter}
+          onChange={(e) => setFilter((e?.target as HTMLInputElement).value)}
+          placeholder="Search conversations"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto bg-background">
+        {sorted.map((c) => (
+          <ConversationListItem
+            key={c.id}
+            meta={c}
+            messageMeta={messageMeta[c.id]}
+            myPubkey={myPubkey}
+            onOpenConversation={onOpenConversation}
           />
-          <Input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject (optional)"
+        ))}
+        {sorted.length === 0 && (
+          <div className="text-sm text-muted-foreground px-4 py-3">No conversations yet.</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ConversationListItem({
+  meta,
+  messageMeta,
+  myPubkey,
+  onOpenConversation
+}: {
+  meta: ConversationMeta
+  messageMeta?: ConversationMessageMeta
+  myPubkey: string | null
+  onOpenConversation: (id: string) => void
+}) {
+  const others = useMemo(
+    () => meta.participants.filter((p) => p !== myPubkey),
+    [meta.participants, myPubkey]
+  )
+  const last = messageMeta?.last
+  const first = messageMeta?.first
+
+  const groupImageTag = useMemo(() => {
+    const tags = first?.tags || []
+    const imageTag = tags.find((t) => ['image', 'img', 'picture', 'avatar'].includes(t[0]))
+    return imageTag?.[1]
+  }, [first])
+
+  const unreadCount = useMemo(() => {
+    if (typeof meta.unreadCount === 'number' && meta.unreadCount > 0) return meta.unreadCount
+    return messageMeta?.unread || 0
+  }, [meta.unreadCount, messageMeta?.unread])
+
+  const previewText = useMemo(() => {
+    if (!last) return 'No messages yet.'
+    if (last.type === 'reaction') {
+      return `Reacted: ${last.content || '+'}`
+    }
+    if (!last.content) return 'Encrypted message'
+    return last.content
+  }, [last])
+
+  const lastSender = last?.sender.pubkey
+
+  const title = deriveDisplayName(meta, myPubkey)
+
+  return (
+    <div
+      className="clickable flex items-start gap-3 cursor-pointer px-4 py-3 border-b"
+      onClick={() => onOpenConversation(meta.id)}
+    >
+      <div className="flex items-center justify-center mt-1.5">
+        {others.length <= 1 ? (
+          <UserAvatar userId={others[0] || meta.participants[0]} size="medium" />
+        ) : groupImageTag ? (
+          <img
+            src={groupImageTag}
+            alt="Conversation"
+            className="w-9 h-9 rounded-full object-cover border"
           />
-          <Button onClick={handleCreateConversation} disabled={sending || !newMembers.trim()}>
-            New conversation
-          </Button>
-        </div>
-        <div className="text-xs font-semibold uppercase text-muted-foreground">Conversations</div>
-        <div className="space-y-2">
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              className={`w-full text-left border rounded-md px-3 py-2 hover:bg-muted ${
-                selectedId === c.id ? 'bg-muted' : ''
-              }`}
-              onClick={() => setSelectedId(c.id)}
-            >
-              <div className="flex items-center justify-between">
-                <div className="font-medium">{deriveDisplayName(c, myPubkey)}</div>
-                {c.unreadCount > 0 && (
-                  <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                    {c.unreadCount}
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {c.participants.length} participant{c.participants.length === 1 ? '' : 's'}
-              </div>
-            </button>
-          ))}
-          {conversations.length === 0 && (
-            <div className="text-sm text-muted-foreground">No conversations yet.</div>
+        ) : (
+          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center border">
+            <Users className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 w-0 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold truncate">{title}</div>
+          {last && (
+            <FormattedTimestamp
+              timestamp={last.timestamp}
+              className="text-muted-foreground text-xs shrink-0"
+              short
+            />
           )}
+        </div>
+        <div className="text-xs text-muted-foreground truncate">
+          {others.length > 1 ? `${others.length} participants` : null}
+        </div>
+        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+          {lastSender ? (
+            <SimpleUsername
+              userId={lastSender}
+              className="font-medium text-foreground truncate max-w-[40%]"
+              withoutSkeleton
+            />
+          ) : null}
+          {lastSender && <span className="text-muted-foreground">:</span>}
+          <span className="line-clamp-1">{previewText}</span>
         </div>
       </div>
 
-      <div className="border rounded-lg p-3 flex flex-col min-h-[400px]">
-        {selectedConversation ? (
-          <>
-            <div className="mb-2">
-              <div className="font-semibold">
-                {deriveDisplayName(selectedConversation, myPubkey)}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {selectedConversation.participants.join(', ')}
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2 border rounded-md p-3 bg-muted/30">
-              {(conversationMessages[selectedConversation.id] || []).map((m) => (
-                <div key={m.id} className="border rounded-md p-2 bg-background space-y-2">
-                  <div className="text-xs text-muted-foreground flex justify-between">
-                    <span>{m.sender.pubkey === myPubkey ? 'You' : m.sender.pubkey}</span>
-                    <span>{new Date(m.timestamp * 1000).toLocaleString()}</span>
-                  </div>
-                  {m.replyTo && (
-                    <div className="text-xs text-muted-foreground">
-                      Reply to: <span className="font-mono">{m.replyTo}</span>
-                    </div>
-                  )}
-                  <div className="text-sm whitespace-pre-wrap mt-1">
-                    {m.type === 'reaction' ? `Reaction: ${m.content}` : m.content}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant={replyTarget?.id === m.id ? 'secondary' : 'ghost'}
-                      onClick={() => setReplyTarget(replyTarget?.id === m.id ? null : m)}
-                    >
-                      {replyTarget?.id === m.id ? 'Cancel reply' : 'Reply'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={reactionSendingId === m.id}
-                      onClick={() => handleReact(m)}
-                    >
-                      {reactionSendingId === m.id ? 'Reacting…' : '👍 React'}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 space-y-2">
-                {replyTarget && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    Replying to <span className="font-mono">{replyTarget.id}</span>
-                    <Button variant="ghost" size="sm" onClick={() => setReplyTarget(null)}>
-                      Clear
-                    </Button>
-                  </div>
-                )}
-              <Textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Type a message"
-                rows={3}
-              />
-              <div className="flex justify-end">
-                <Button onClick={handleSend} disabled={sending || !draft.trim()}>
-                  Send
-                </Button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="text-sm text-muted-foreground">Select a conversation to view messages.</div>
-        )}
-      </div>
+      {unreadCount > 0 && (
+        <div className="self-center shrink-0">
+          <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+            {unreadCount}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
