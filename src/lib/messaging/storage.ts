@@ -6,6 +6,7 @@ export interface StorageAdapter {
   markAsRead(messageIds: string[]): Promise<void>
   getConversations(): Promise<ConversationMeta[]>
   saveConversation(conversation: ConversationMeta): Promise<void>
+  setLastRead(conversationId: string, lastReadId: string, lastReadAt: number): Promise<void>
 }
 
 export class MemoryStorage implements StorageAdapter {
@@ -46,5 +47,20 @@ export class MemoryStorage implements StorageAdapter {
 
   async saveConversation(conversation: ConversationMeta): Promise<void> {
     this.conversations.set(conversation.id, conversation)
+  }
+
+  async setLastRead(conversationId: string, lastReadId: string, lastReadAt: number): Promise<void> {
+    const convo = this.conversations.get(conversationId)
+    if (convo) {
+      convo.lastReadId = lastReadId
+      convo.lastReadAt = lastReadAt
+      this.conversations.set(conversationId, convo)
+    }
+    const list = this.messages.get(conversationId) || []
+    list.forEach((m) => {
+      if (m.timestamp <= lastReadAt) {
+        m.read = true
+      }
+    })
   }
 }

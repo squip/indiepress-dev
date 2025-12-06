@@ -30,6 +30,7 @@ export class MultiPartyMessenger {
   private myPubkey?: string
   private subscription?: NDKSubscription
   private discoveryRelay: string
+  private lastReceiptPublishedAt = 0
 
   constructor(ndk: NDK, options: MessengerOptions = {}) {
     this.ndk = ndk
@@ -66,6 +67,7 @@ export class MultiPartyMessenger {
     const user = await this.ndk.signer.user()
     this.myPubkey = user.pubkey
     await this.loadPersisted()
+    await this.loadReadMarkers()
     await this.subscribe()
   }
 
@@ -117,6 +119,7 @@ export class MultiPartyMessenger {
       tags
     }
     await this.persistMessage(rumorMessage)
+    await this.publishReadMarker(rumorMessage.conversationId, rumorMessage.id, rumorMessage.timestamp)
     return [rumorMessage]
   }
 
@@ -152,19 +155,27 @@ export class MultiPartyMessenger {
 
   async markConversationRead(conversationId: string) {
     const msgs = await this.getConversationMessages(conversationId)
-    const unreadIds = msgs.filter((m) => !m.read && m.sender.pubkey !== this.myPubkey).map((m) => m.id)
+    if (!msgs.length) return
+    const last = msgs[msgs.length - 1]
+    const unreadIds = msgs
+      .filter((m) => !m.read && m.sender.pubkey !== this.myPubkey)
+      .map((m) => m.id)
     if (unreadIds.length) {
       await this.storage.markAsRead(unreadIds)
       msgs.forEach((m) => {
         if (unreadIds.includes(m.id)) m.read = true
       })
-      const meta = this.conversations.get(conversationId)
-      if (meta) {
-        meta.unreadCount = 0
-        await this.storage.saveConversation(meta)
-        this.emit({ type: 'conversation-updated', conversation: meta })
-      }
     }
+    const meta = this.conversations.get(conversationId)
+    if (meta) {
+      meta.unreadCount = 0
+      meta.lastReadAt = last.timestamp
+      meta.lastReadId = last.id
+      await this.storage.saveConversation(meta)
+      await this.storage.setLastRead(conversationId, last.id, last.timestamp)
+      this.emit({ type: 'conversation-updated', conversation: meta })
+    }
+    await this.publishReadMarker(conversationId, last.id, last.timestamp)
   }
 
   private async loadPersisted() {
@@ -203,12 +214,20 @@ export class MultiPartyMessenger {
     if (!rumor) return
     const message = this.protocol.rumorToMessage(rumor, this.myPubkey)
     await this.persistMessage(message)
+    await this.maybePublishReceipt(message.conversationId, message.id, message.timestamp)
   }
 
   private async persistMessage(message: DMMessage) {
     const list = this.messages.get(message.conversationId) || []
     const exists = list.find((m) => m.id === message.id)
     if (!exists) {
+      const meta = this.conversations.get(message.conversationId)
+      const lastReadAt = meta?.lastReadAt || 0
+      if (message.sender.pubkey === this.myPubkey) {
+        message.read = true
+      } else if (message.read === undefined) {
+        message.read = message.timestamp <= lastReadAt
+      }
       list.push(message)
       list.sort((a, b) => a.timestamp - b.timestamp)
       this.messages.set(message.conversationId, list)
@@ -226,7 +245,7 @@ export class MultiPartyMessenger {
     if (existing) {
       existing.lastMessageAt = message.timestamp
       if (message.sender.pubkey !== this.myPubkey) {
-        existing.unreadCount += 1
+        if (!message.read) existing.unreadCount += 1
       }
       if (subject) existing.subject = subject
       await this.storage.saveConversation(existing)
@@ -238,8 +257,10 @@ export class MultiPartyMessenger {
       participants,
       protocol: 'nip17',
       subject,
-      unreadCount: message.sender.pubkey === this.myPubkey ? 0 : 1,
-      lastMessageAt: message.timestamp
+      unreadCount: message.sender.pubkey === this.myPubkey || message.read ? 0 : 1,
+      lastMessageAt: message.timestamp,
+      lastReadAt: message.read ? message.timestamp : undefined,
+      lastReadId: message.read ? message.id : undefined
     }
     this.conversations.set(id, meta)
     await this.storage.saveConversation(meta)
@@ -288,6 +309,121 @@ export class MultiPartyMessenger {
     await event.sign(this.ndk.signer!)
     const relaySet = NDKRelaySet.fromRelayUrls(relays, this.ndk)
     await event.publish(relaySet)
+  }
+
+  private async publishReadMarker(
+    conversationId: string,
+    lastMessageId: string,
+    lastMessageAt: number
+  ) {
+    if (!this.myPubkey) return
+    const now = Date.now()
+    if (now - this.lastReceiptPublishedAt < 1500) return
+    this.lastReceiptPublishedAt = now
+
+    const meta = this.conversations.get(conversationId)
+    if (!meta) return
+    const payload = {
+      v: 1,
+      rooms: [
+        {
+          id: conversationId,
+          last_e: lastMessageId,
+          ts: lastMessageAt,
+          subject: meta.subject
+        }
+      ]
+    }
+
+    const evt = new NDKEvent(this.ndk)
+    evt.kind = 10017 as NDKKind
+    evt.content = JSON.stringify(payload)
+    evt.tags = []
+    evt.created_at = Math.floor(Date.now() / 1000)
+    const selfUser = await this.ndk.signer!.user()
+    try {
+      await evt.encrypt(selfUser, this.ndk.signer!, 'nip44')
+    } catch (err) {
+      console.warn('Failed to encrypt 10017 payload, falling back to plaintext', err)
+    }
+    await evt.sign(this.ndk.signer!)
+
+    const relayUrls = await this.getRelaySetForConversation(meta.participants)
+    if (!relayUrls.length) return
+    const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, this.ndk)
+    await evt.publish(relaySet)
+  }
+
+  private async maybePublishReceipt(
+    conversationId: string,
+    lastMessageId: string,
+    lastMessageAt: number
+  ) {
+    await this.publishReadMarker(conversationId, lastMessageId, lastMessageAt)
+  }
+
+  private async getRelaySetForConversation(participants: string[]): Promise<string[]> {
+    const urls = new Set<string>()
+    urls.add(this.discoveryRelay)
+    for (const pk of participants) {
+      const rels = await this.getUserDMRelays(new NDKUser({ pubkey: pk }))
+      rels.forEach((r) => urls.add(r))
+    }
+    return Array.from(urls)
+  }
+
+  private async loadReadMarkers() {
+    if (!this.myPubkey) return
+    try {
+      const events = await this.ndk.fetchEvents(
+        {
+          kinds: [10017 as NDKKind],
+          authors: [this.myPubkey]
+        },
+        { closeOnEose: true }
+      )
+      for (const evt of events) {
+        let content = evt.content
+        try {
+          await evt.decrypt(undefined, this.ndk.signer, 'nip44')
+          content = evt.content
+        } catch {
+          // ignore decrypt failures
+        }
+        let payload: any
+        try {
+          payload = JSON.parse(content || '{}')
+        } catch {
+          continue
+        }
+        const rooms = payload?.rooms
+        if (!Array.isArray(rooms)) continue
+        for (const room of rooms) {
+          const convId = room.id as string
+          const ts = Number(room.ts) || 0
+          const last_e = room.last_e as string | undefined
+          if (!convId || !ts) continue
+          const meta = this.conversations.get(convId)
+          if (!meta) continue
+          meta.lastReadAt = Math.max(meta.lastReadAt || 0, ts)
+          if (last_e) meta.lastReadId = last_e
+          const msgs = this.messages.get(convId) || []
+          let unread = 0
+          msgs.forEach((m) => {
+            if (m.timestamp <= (meta.lastReadAt || 0)) {
+              m.read = true
+            }
+            if (!m.read && m.sender.pubkey !== this.myPubkey) unread += 1
+          })
+          meta.unreadCount = unread
+          await this.storage.saveConversation(meta)
+          this.conversations.set(convId, meta)
+          this.emit({ type: 'conversation-updated', conversation: meta })
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load 10017 markers', err)
+    }
   }
 }
 

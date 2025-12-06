@@ -26,6 +26,8 @@ export type ConversationMeta = {
   subject?: string
   unreadCount: number
   lastMessageAt?: number
+  lastReadAt?: number
+  lastReadId?: string
 }
 
 export type MessengerEvent =

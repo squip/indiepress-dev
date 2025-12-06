@@ -1,12 +1,9 @@
 
 import React, { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import mediaUploadService from '@/services/media-upload.service'
-import ImageWithLightbox from '@/components/ImageWithLightbox'
-import VideoPlayer from '@/components/VideoPlayer'
 import * as nip19 from '@nostr/tools/nip19'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
 import { useMessenger } from '@/providers/MessengerProvider'
 import { NDKUser } from '@nostr-dev-kit/ndk'
 import type { DMMessage } from '@/lib/messaging/types'
@@ -15,10 +12,13 @@ import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import EmojiPicker from '@/components/EmojiPicker'
+import Content from '@/components/Content'
+import { useFetchProfile } from '@/hooks'
+import client from '@/services/client.service'
+import { NostrUser } from '@nostr/gadgets/metadata'
 import {
   Image as ImageIcon,
   Smile,
-  AtSign,
   Send,
   ChevronDown,
   Heart,
@@ -41,37 +41,7 @@ function formatName(pubkey: string, myPubkey: string | null) {
   return shortNpub(pubkey)
 }
 
-function isImageUrl(url: string) {
-  return /(\.png|\.jpe?g|\.gif|\.webp)$/i.test(url)
-}
-
-function isVideoUrl(url: string) {
-  return /(\.mp4|\.webm|\.mov)$/i.test(url)
-}
-
 type ReactionStat = { emoji: string; count: number; self: boolean }
-
-type RenderedContent = {
-  type: 'media' | 'text'
-  url?: string
-  text?: string
-  isImage?: boolean
-}
-
-function parseContent(content: string): RenderedContent[] {
-  const parts: RenderedContent[] = []
-  const tokens = content.split(/\s+/)
-  tokens.forEach((tok) => {
-    if (/^https?:\/\//.test(tok)) {
-      if (isImageUrl(tok)) parts.push({ type: 'media', url: tok, isImage: true })
-      else if (isVideoUrl(tok)) parts.push({ type: 'media', url: tok, isImage: false })
-      else parts.push({ type: 'text', text: tok })
-    } else {
-      parts.push({ type: 'text', text: tok })
-    }
-  })
-  return parts
-}
 
 export function DMThread({ conversationId, myPubkey }: { conversationId: string; myPubkey: string | null }) {
   const { messenger, messages, conversations, ready, unsupportedReason } = useMessenger()
@@ -97,7 +67,6 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   useEffect(() => {
     if (!messenger || !conversationId) return
     messenger.getConversationMessages(conversationId).then((msgs) => setLocalMessages(msgs))
-    messenger.markConversationRead(conversationId)
   }, [messenger, conversationId])
 
   useEffect(() => {
@@ -112,16 +81,24 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     [localMessages, myPubkey]
   )
 
+  const unreadCount = useMemo(
+    () => localMessages.filter((m) => !m.read && m.sender.pubkey !== myPubkey).length,
+    [localMessages, myPubkey]
+  )
+
   useEffect(() => {
     if (anchored) return
     if (!localMessages.length) return
-    const targetId = firstUnreadIdx >= 0 ? localMessages[firstUnreadIdx]?.id : localMessages.at(-1)?.id
+    const showDivider = firstUnreadIdx >= 0 && unreadCount > 10
+    const targetId = showDivider
+      ? localMessages[firstUnreadIdx]?.id
+      : localMessages.at(-1)?.id
     if (!targetId) return
     requestAnimationFrame(() => {
       scrollToMessage(targetId, false)
       setAnchored(true)
     })
-  }, [localMessages, firstUnreadIdx, anchored])
+  }, [localMessages, firstUnreadIdx, anchored, unreadCount])
 
   useEffect(() => {
     const el = listRef.current
@@ -171,12 +148,6 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       setUploading(false)
       setUploadProgress(null)
     }
-  }
-
-  const addMention = (mention: string) => {
-    if (!mention) return
-    const token = mention.startsWith('nostr:') ? mention : `nostr:${mention}`
-    setDraft((d) => `${d}${d && !d.endsWith(' ') ? ' ' : ''}${token} `)
   }
 
   const handleReact = async (message: DMMessage, emoji = '👍') => {
@@ -235,7 +206,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       <div ref={listRef} className="flex-1 overflow-y-auto space-y-3 px-3 py-2 relative">
         {localMessages.map((m, idx) => (
           <React.Fragment key={m.id}>
-            {firstUnreadIdx === idx && (
+            {firstUnreadIdx === idx && unreadCount > 10 && (
               <UnreadDivider onClick={() => scrollToBottom()} />
             )}
             <MessageBubble
@@ -282,14 +253,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         sending={sending}
         replyTarget={replyTarget}
         myPubkey={myPubkey}
-        clearReply={() => setReplyTarget(null)}
-        onKeyDown={handleKeyDown}
-        onAddMedia={handleMediaUpload}
-        onAddMention={addMention}
-        onAddEmoji={(emoji) => setDraft((d) => `${d}${emoji}`)}
-        uploading={uploading}
-        uploadProgress={uploadProgress}
-      />
+      clearReply={() => setReplyTarget(null)}
+      onKeyDown={handleKeyDown}
+      onAddMedia={handleMediaUpload}
+      onAddEmoji={(emoji) => setDraft((d) => `${d}${emoji}`)}
+      uploading={uploading}
+      uploadProgress={uploadProgress}
+    />
     </div>
   )
 }
@@ -338,10 +308,14 @@ function MessageBubble({
     ? 'bg-primary/10 border-primary/30 ml-auto'
     : 'bg-muted/60 border-muted-foreground/20 mr-auto'
 
+  const { profile } = useFetchProfile(message.sender.pubkey)
+
   const replyMessage = useMemo(() => {
     if (!message.replyTo) return null
     return allMessages.find((m) => m.id === message.replyTo) || null
   }, [allMessages, message.replyTo])
+
+  const { profile: replyProfile } = useFetchProfile(replyMessage?.sender.pubkey || '')
 
   useEffect(() => {
     if (message.replyTo && !replyMessage) {
@@ -349,7 +323,11 @@ function MessageBubble({
     }
   }, [message.replyTo, replyMessage, resolveReply])
 
-  const contentParts = useMemo(() => parseContent(message.content || ''), [message.content])
+  const displayName = (pubkey: string, prof?: any) => {
+    if (pubkey === myPubkey) return 'You'
+    if (prof?.shortName) return prof.shortName
+    return shortNpub(pubkey)
+  }
 
   return (
     <div className={cn('flex w-full gap-2', mine ? 'justify-end' : 'justify-start')} ref={messageRef}>
@@ -363,7 +341,7 @@ function MessageBubble({
           )}
         >
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{formatName(message.sender.pubkey, myPubkey)}</span>
+            <span className="font-medium text-foreground">{displayName(message.sender.pubkey, profile)}</span>
             <span>{new Date(message.timestamp * 1000).toLocaleString()}</span>
           </div>
           {message.replyTo && (
@@ -371,9 +349,11 @@ function MessageBubble({
               {replyMessage ? (
                 <>
                   <div className="font-semibold text-foreground/80 text-xs">
-                    {formatName(replyMessage.sender.pubkey, myPubkey)}
+                    {displayName(replyMessage.sender.pubkey, replyProfile)}
                   </div>
-                  <div className="text-sm line-clamp-2">{replyMessage.content || 'Encrypted message'}</div>
+                  <div className="text-sm line-clamp-2">
+                    <Content content={replyMessage.content || 'Encrypted message'} />
+                  </div>
                 </>
               ) : (
                 <div className="text-xs">Referenced message not loaded</div>
@@ -381,18 +361,7 @@ function MessageBubble({
             </div>
           )}
           <div className="text-sm whitespace-pre-wrap space-y-2">
-            {contentParts.map((part, idx) => {
-              if (part.type === 'media' && part.url) {
-                return part.isImage ? (
-                  <ImageWithLightbox key={`${message.id}-img-${idx}`} image={{ url: part.url, pubkey: message.sender.pubkey }} />
-                ) : (
-                  <VideoPlayer key={`${message.id}-vid-${idx}`} src={part.url} />
-                )
-              }
-              return (
-                <div key={`${message.id}-txt-${idx}`} className="break-words">{part.text}</div>
-              )
-            })}
+            <Content content={message.content || ''} />
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -457,7 +426,6 @@ function ChatComposer({
   clearReply,
   onKeyDown,
   onAddMedia,
-  onAddMention,
   onAddEmoji,
   uploading,
   uploadProgress
@@ -472,14 +440,14 @@ function ChatComposer({
   clearReply: () => void
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   onAddMedia: (file: File) => void
-  onAddMention: (mention: string) => void
   onAddEmoji: (emoji: string) => void
   uploading: boolean
   uploadProgress: number | null
 }) {
-  const [mentionOpen, setMentionOpen] = useState(false)
-  const [mentionValue, setMentionValue] = useState('')
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionResults, setMentionResults] = useState<NostrUser[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const mentionRequest = useRef<number>(0)
 
   const handleMediaClick = () => {
     if (!fileInputRef.current) {
@@ -495,12 +463,29 @@ function ChatComposer({
     fileInputRef.current.click()
   }
 
-  const commitMention = () => {
-    const val = mentionValue.trim()
-    if (!val) return
-    onAddMention(val)
-    setMentionValue('')
-    setMentionOpen(false)
+  useEffect(() => {
+    const match = draft.match(/@([\w\.-]{1,32})$/)
+    if (!match) {
+      setMentionQuery('')
+      setMentionResults([])
+      return
+    }
+    const q = match[1]
+    setMentionQuery(q)
+    const reqId = ++mentionRequest.current
+    client.searchProfilesFromLocal(q, 8).then((res) => {
+      if (mentionRequest.current !== reqId) return
+      setMentionResults(res)
+    })
+  }, [draft])
+
+  const insertMention = (pubkey: string) => {
+    const npub = nip19.npubEncode(pubkey)
+    const token = `nostr:${npub}`
+    const next = draft.replace(/@([\w\.-]{1,32})$/, `${token} `)
+    setDraft(next)
+    setMentionResults([])
+    setMentionQuery('')
   }
 
   const emojiButton = (
@@ -556,28 +541,31 @@ function ChatComposer({
                   />
                 </PopoverContent>
               </Popover>
-              <div className="space-y-2">
-                <Input
-                  value={mentionValue}
-                  onChange={(e) => setMentionValue(e.target.value)}
-                  placeholder="npub/nprofile/hex"
-                  className="h-9"
-                />
-                <Button variant="ghost" className="justify-start" onClick={commitMention}>
-                  Add mention
-                </Button>
-              </div>
             </PopoverContent>
           </Popover>
-          <div className="flex-1">
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Message"
-              className="min-h-[40px] max-h-40 resize-none rounded-2xl"
-              rows={1}
-            />
-          </div>
+        <div className="flex-1">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Message"
+            className="min-h-[40px] max-h-40 resize-none rounded-2xl"
+            rows={1}
+          />
+          {mentionResults.length > 0 && (
+            <div className="mt-1 rounded-md border bg-popover text-popover-foreground shadow">
+              {mentionResults.map((res) => (
+                <button
+                  key={res.pubkey}
+                  className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground flex items-center gap-2"
+                  onClick={() => insertMention(res.pubkey)}
+                >
+                  <SimpleUserAvatar profile={res} size="small" />
+                  <div className="truncate">{res?.shortName || shortNpub(res.pubkey)}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
           <Button
             variant="ghost"
             size="icon"
@@ -608,23 +596,6 @@ function ChatComposer({
             <ImageIcon className="h-4 w-4" />
           </Button>
           {emojiButton}
-          <Popover open={mentionOpen} onOpenChange={setMentionOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full" title="Mention">
-                <AtSign className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="p-2 w-56 space-y-2" align="start">
-              <Input
-                value={mentionValue}
-                onChange={(e) => setMentionValue(e.target.value)}
-                placeholder="npub/nprofile/hex"
-              />
-              <div className="flex justify-end">
-                <Button size="sm" onClick={commitMention}>Add mention</Button>
-              </div>
-            </PopoverContent>
-          </Popover>
         </div>
         {uploading && (
           <div className="text-xs text-muted-foreground flex items-center gap-2 px-1">
@@ -639,6 +610,20 @@ function ChatComposer({
           placeholder="Type a message"
           className="min-h-[80px] max-h-60 resize-none"
         />
+        {mentionResults.length > 0 && mentionQuery && (
+          <div className="rounded-md border bg-popover text-popover-foreground shadow max-h-64 overflow-y-auto">
+            {mentionResults.map((res) => (
+              <button
+                key={res.pubkey}
+                className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground flex items-center gap-2"
+                onClick={() => insertMention(res.pubkey)}
+              >
+                <SimpleUserAvatar profile={res} size="small" />
+                <div className="truncate">{res?.shortName || shortNpub(res.pubkey)}</div>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setDraft('')}>
             Cancel
