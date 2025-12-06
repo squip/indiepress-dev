@@ -9,11 +9,11 @@ import NDK, { NDKNip07Signer } from '@nostr-dev-kit/ndk'
 import * as nip49 from '@nostr/tools/nip49'
 
 const PASSWORD_PROMPT = 'Enter the password to decrypt your ncryptsec for messaging'
+const debug = (...args: any[]) => console.debug('[MessengerProvider]', ...args)
 
 type MessengerContextType = {
   messenger: MultiPartyMessenger | null
   conversations: ConversationMeta[]
-  messages: Record<string, DMMessage[]>
   ready: boolean
   unsupportedReason?: string
 }
@@ -30,16 +30,23 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
   const { pubkey, relayList, nsec, ncryptsec, isReady } = useNostr()
   const [messenger, setMessenger] = useState<MultiPartyMessenger | null>(null)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
-  const [messages, setMessages] = useState<Record<string, DMMessage[]>>({})
   const [unsupportedReason, setUnsupportedReason] = useState<string | undefined>(undefined)
   const ready = useRef(false)
   const [readyFlag, setReadyFlag] = useState(false)
 
   useEffect(() => {
+    debug('ready state', { readyFlag, hasMessenger: !!messenger })
+  }, [readyFlag, messenger])
+
+  useEffect(() => {
     const init = async () => {
       if (!isReady || !pubkey || !relayList) return
+      debug('init start', { isReady, pubkey, relays: relayList })
       setUnsupportedReason(undefined)
       setReadyFlag(false)
+
+      const primaryDbName = 'fevela-nip17'
+      const fallbackDbName = `fevela-nip17-v2-${Date.now()}`
 
       const discoveryRelay = import.meta.env.VITE_DISCOVERY_RELAY as string | undefined
       const relayUrls = Array.from(
@@ -54,7 +61,7 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
       let off: (() => void) | null = null
 
       try {
-        const cacheAdapter = new NDKCacheAdapterDexie({ dbName: 'fevela-nip17' })
+        const cacheAdapter = new NDKCacheAdapterDexie({ dbName: primaryDbName })
         let ndk: NDK | null = null
 
         if (nsec) {
@@ -86,45 +93,80 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
         ndk.cacheAdapter = cacheAdapter as any
 
         await ndk.connect()
+        debug('NDK connected', { relays: relayUrls.length })
 
-        const adapterAny = cacheAdapter as any
-        const supportsModules =
-          typeof adapterAny?.registerModule === 'function' &&
-          typeof adapterAny?.getCollection === 'function'
+        const buildStorage = async (dbName: string) => {
+          const adapter = dbName === primaryDbName ? cacheAdapter : new NDKCacheAdapterDexie({ dbName })
+          const storage = new CacheStorage(adapter as any)
+          // ensure tables exist now so we fail early if the module is missing
+          await storage.getConversations()
+          debug('storage ready', dbName)
+          return storage
+        }
 
-        const storage = supportsModules ? new CacheStorage(adapterAny) : new MemoryStorage()
+        let storage: CacheStorage | MemoryStorage
+        try {
+          storage = await buildStorage(primaryDbName)
+          debug('storage selected', 'CacheStorage', primaryDbName)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.includes('Collection messages not found')) {
+            console.warn('Cache module missing; trying fresh DB name', fallbackDbName)
+            try {
+              storage = await buildStorage(fallbackDbName)
+              debug('storage selected', 'CacheStorage', fallbackDbName)
+            } catch (err2) {
+              console.warn('Cache fallback failed; using MemoryStorage', err2)
+              storage = new MemoryStorage()
+              debug('storage selected', 'MemoryStorage')
+            }
+          } else {
+            console.warn('Cache adapter unavailable; using MemoryStorage', err)
+            storage = new MemoryStorage()
+            debug('storage selected', 'MemoryStorage')
+          }
+        }
 
         mp = new MultiPartyMessenger(ndk, { storage })
         await mp.start()
+        debug('messenger started')
         ready.current = true
         setMessenger(mp)
-        setConversations(await mp.getConversations())
+        const convos = await mp.getConversations()
+        debug('initial conversations', convos.length)
+        setConversations(convos)
 
         off = mp.on(async (event: MessengerEvent) => {
           if (event.type === 'message') {
-            setMessages((prev) => {
-              const next = { ...prev }
-              const list = next[event.message.conversationId] || []
-              next[event.message.conversationId] = [
-                ...list.filter((m) => m.id !== event.message.id),
-                event.message
-              ]
-              return next
+            debug('event message', {
+              id: event.message.id,
+              conversationId: event.message.conversationId,
+              read: event.message.read
             })
           } else if (
             event.type === 'conversation-created' ||
             event.type === 'conversation-updated'
           ) {
+            debug('event conversation', { type: event.type, id: event.conversation.id, unread: event.conversation.unreadCount })
             setConversations((prev) => {
-              const existing = prev.filter((c) => c.id !== event.conversation.id)
-              return [...existing, event.conversation].sort(
+              const existing = prev.find((c) => c.id === event.conversation.id)
+              const same =
+                existing &&
+                existing.lastMessageAt === event.conversation.lastMessageAt &&
+                existing.unreadCount === event.conversation.unreadCount &&
+                existing.lastReadAt === event.conversation.lastReadAt &&
+                existing.lastReadId === event.conversation.lastReadId &&
+                existing.subject === event.conversation.subject
+              if (same) {
+                return prev
+              }
+              const without = prev.filter((c) => c.id !== event.conversation.id)
+              return [...without, event.conversation].sort(
                 (a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0)
               )
             })
           }
         })
-
-        setMessages({})
       } catch (err) {
         console.error('Failed to initialize NIP-17 messenger', err)
         setUnsupportedReason(
@@ -137,6 +179,7 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
 
       return () => {
         if (off) off()
+        debug('cleanup messenger')
         mp?.stop()
       }
     }
@@ -151,11 +194,10 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
     () => ({
       messenger,
       conversations,
-      messages,
       ready: readyFlag,
       unsupportedReason
     }),
-    [messenger, conversations, messages, unsupportedReason, readyFlag]
+    [messenger, conversations, unsupportedReason, readyFlag]
   )
 
   return <MessengerContext.Provider value={value}>{children}</MessengerContext.Provider>

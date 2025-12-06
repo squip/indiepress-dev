@@ -1,5 +1,12 @@
 
-import React, { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from 'react'
 import mediaUploadService from '@/services/media-upload.service'
 import * as nip19 from '@nostr/tools/nip19'
 import { Button } from '@/components/ui/button'
@@ -27,6 +34,8 @@ import {
   Plus
 } from 'lucide-react'
 
+const debug = (...args: any[]) => console.debug('[DMThread]', ...args)
+
 function shortNpub(pubkey: string) {
   try {
     const npub = nip19.npubEncode(pubkey)
@@ -44,7 +53,7 @@ function formatName(pubkey: string, myPubkey: string | null) {
 type ReactionStat = { emoji: string; count: number; self: boolean }
 
 export function DMThread({ conversationId, myPubkey }: { conversationId: string; myPubkey: string | null }) {
-  const { messenger, messages, conversations, ready, unsupportedReason } = useMessenger()
+  const { messenger, conversations, ready, unsupportedReason } = useMessenger()
   const { isSmallScreen } = useScreenSize()
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -55,9 +64,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   const [showScrollBottom, setShowScrollBottom] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [nearBottom, setNearBottom] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const [anchored, setAnchored] = useState(false)
+  const prevLength = useRef(0)
+  const anchorRetry = useRef<number | null>(null)
+  const localCountRef = useRef(0)
 
   const conversation = useMemo(
     () => conversations.find((c) => c.id === conversationId) || null,
@@ -66,15 +79,55 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
 
   useEffect(() => {
     if (!messenger || !conversationId) return
-    messenger.getConversationMessages(conversationId).then((msgs) => setLocalMessages(msgs))
+    debug('fetch messages (init)', { conversationId })
+    messenger.getConversationMessages(conversationId).then((msgs) => {
+      debug('initial messages', { conversationId, count: msgs.length })
+      setLocalMessages(msgs)
+    })
   }, [messenger, conversationId])
 
   useEffect(() => {
-    const newMsgs = messages[conversationId]
-    if (newMsgs) {
-      setLocalMessages(newMsgs)
+    localCountRef.current = localMessages.length
+  }, [localMessages.length])
+
+  useEffect(() => {
+    if (!messenger) return
+    debug('live listener attach', { conversationId })
+    const off = messenger.on((event) => {
+      if (event.type === 'message' && event.message.conversationId === conversationId) {
+        debug('live event message', {
+          id: event.message.id,
+          ts: event.message.timestamp,
+          read: event.message.read,
+          localCount: localCountRef.current
+        })
+        setLocalMessages((prev) => {
+          const exists = prev.find((m) => m.id === event.message.id)
+          const next = exists
+            ? prev.map((m) => (m.id === event.message.id ? event.message : m))
+            : [...prev, event.message]
+          next.sort((a, b) => a.timestamp - b.timestamp)
+          return next
+        })
+      }
+    })
+    return () => {
+      debug('live listener detach', { conversationId })
+      off?.()
     }
-  }, [messages, conversationId])
+  }, [messenger, conversationId])
+
+  useEffect(() => {
+    if (localMessages.length !== prevLength.current) {
+      debug('localMessages length change', {
+        from: prevLength.current,
+        to: localMessages.length,
+        conversationId
+      })
+      setAnchored(false)
+      prevLength.current = localMessages.length
+    }
+  }, [localMessages.length])
 
   const firstUnreadIdx = useMemo(
     () => localMessages.findIndex((m) => !m.read && m.sender.pubkey !== myPubkey),
@@ -86,43 +139,124 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     [localMessages, myPubkey]
   )
 
-  useEffect(() => {
+  const attemptAnchor = (attempt = 1) => {
     if (anchored) return
     if (!localMessages.length) return
-    const showDivider = firstUnreadIdx >= 0 && unreadCount > 10
-    const targetId = showDivider
-      ? localMessages[firstUnreadIdx]?.id
-      : localMessages.at(-1)?.id
-    if (!targetId) return
-    requestAnimationFrame(() => {
-      scrollToMessage(targetId, false)
-      setAnchored(true)
+    const hasReadMarker = !!conversation?.lastReadAt
+    const targetMessage =
+      unreadCount > 0 && firstUnreadIdx >= 0 && hasReadMarker
+        ? localMessages[firstUnreadIdx]
+        : localMessages.at(-1)
+    if (!targetMessage) return
+    const list = listRef.current
+    if (!list) {
+      debug('anchor attempt skipped - no list element', { conversationId })
+      return
+    }
+    debug('anchor attempt', {
+      conversationId,
+      unreadCount,
+      firstUnreadIdx,
+      targetId: targetMessage.id,
+      messages: localMessages.length,
+      attempt,
+      scrollTop: list.scrollTop,
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight
     })
-  }, [localMessages, firstUnreadIdx, anchored, unreadCount])
+    const scrolled =
+      unreadCount > 0 && unreadCount > 10
+        ? scrollToMessage(targetMessage.id, false)
+        : scrollToBottom(false)
+    const verify = () => {
+      anchorRetry.current = null
+      const listEl = listRef.current
+      const targetVisible =
+        unreadCount > 0 && unreadCount > 10
+          ? isMessageVisible(targetMessage.id)
+          : isNearBottom(listEl)
+      debug('anchor verification', {
+        conversationId,
+        targetId: targetMessage.id,
+        scrolled,
+        targetVisible,
+        scrollTop: listEl?.scrollTop,
+        scrollHeight: listEl?.scrollHeight,
+        clientHeight: listEl?.clientHeight,
+        attempt
+      })
+      if (targetVisible) {
+        if (scrolled && unreadCount > 0 && unreadCount <= 10) {
+          messenger?.markConversationRead(conversationId)
+        }
+        setAnchored(true)
+      } else if (attempt < 5) {
+        anchorRetry.current = window.setTimeout(() => attemptAnchor(attempt + 1), 120)
+      }
+    }
+    debug('anchor verify scheduled', { attempt })
+    anchorRetry.current = window.setTimeout(verify, 16)
+    // also try immediately in case refs are already ready
+    verify()
+  }
+
+  useLayoutEffect(() => {
+    attemptAnchor()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localMessages, firstUnreadIdx, anchored, unreadCount, messenger, conversationId, conversation?.lastReadAt])
 
   useEffect(() => {
-    const el = listRef.current
+    return () => {
+      if (anchorRetry.current) clearTimeout(anchorRetry.current)
+      anchorRetry.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = getScrollElement()
     if (!el) return
     const handler = () => {
-      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-      setShowScrollBottom(!nearBottom)
-      if (nearBottom && messenger) {
+      const scrollEl = getScrollElement() as HTMLDivElement | null
+      const isNear = scrollEl
+        ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 120
+        : false
+      setNearBottom(isNear)
+      setShowScrollBottom(unreadCount > 0 && !isNear)
+      if (isNear && messenger && unreadCount > 0) {
+        debug('scroll near bottom', { conversationId, unreadCount })
         messenger.markConversationRead(conversationId)
       }
     }
     handler()
-    el.addEventListener('scroll', handler)
-    return () => el.removeEventListener('scroll', handler)
-  }, [messenger, conversationId])
+    const target = getScrollElement()
+    target?.addEventListener('scroll', handler)
+    return () => target?.removeEventListener('scroll', handler)
+  }, [messenger, conversationId, unreadCount])
+
+  useEffect(() => {
+    debug('showScrollBottom changed', { conversationId, showScrollBottom })
+  }, [conversationId, showScrollBottom])
+
+  useEffect(() => {
+    // If we were anchored or already near bottom, keep snapping when new messages arrive
+    if (!localMessages.length) return
+    const scrollEl = getScrollElement()
+    const wasNearBottom = isNearBottom(scrollEl)
+    if (anchored || wasNearBottom) {
+      scrollToBottom(false)
+    }
+  }, [localMessages.length])
 
   const handleSend = async () => {
     if (!messenger || !conversation || !draft.trim()) return
     setSending(true)
     try {
+      debug('handleSend', { conversationId, draftLength: draft.length, replyTo: replyTarget?.id })
       const participants = conversation.participants.map((p) => new NDKUser({ pubkey: p }))
       const msgs = await messenger.sendMessage(participants, draft, {
         replyTo: replyTarget?.id
       })
+      debug('handleSend result', { added: msgs.length })
       setLocalMessages((prev) => [...prev, ...msgs])
       setDraft('')
       setReplyTarget(null)
@@ -130,6 +264,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       scrollToBottom()
     } catch (err) {
       console.error('Failed to send DM', err)
+      debug('handleSend error', err)
     } finally {
       setSending(false)
     }
@@ -139,11 +274,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     setUploading(true)
     setUploadProgress(0)
     try {
+      debug('media upload start', { name: file.name, size: file.size })
       const result = await mediaUploadService.upload(file, { onProgress: (p) => setUploadProgress(p) })
       const url = result.url
       setDraft((d) => `${d}${d ? ' ' : ''}${url}`)
     } catch (err) {
       console.error('Media upload failed', err)
+      debug('media upload error', err)
     } finally {
       setUploading(false)
       setUploadProgress(null)
@@ -154,32 +291,80 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     if (!messenger || !conversation) return
     setReactionSendingId(message.id)
     try {
+      debug('react start', { conversationId, messageId: message.id, emoji })
       const reaction = await messenger.sendReaction(conversation.id, message.id, emoji)
       if (reaction) {
         setLocalMessages((prev) => [...prev, reaction])
+        debug('react persisted', { reactionId: reaction.id })
       }
     } catch (err) {
       console.error('Failed to send reaction', err)
+      debug('react error', err)
     } finally {
       setReactionSendingId(null)
       setPickerOpen(null)
     }
   }
 
+  const getScrollElement = (): HTMLElement | null => {
+    const list = listRef.current
+    if (!list) return (typeof document !== 'undefined' ? document.scrollingElement as HTMLElement | null : null)
+    const viewport = list.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null
+    return viewport || list || (typeof document !== 'undefined' ? document.scrollingElement as HTMLElement | null : null)
+  }
+
   const scrollToMessage = (id: string, smooth = true) => {
     const el = messageRefs.current.get(id)
-    const list = listRef.current
+    const list = getScrollElement()
     if (el && list) {
       const top = el.offsetTop - 24
-      list.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+      debug('scrollToMessage', { id, top, smooth })
+      if ((list as any).scrollTo) {
+        ;(list as any).scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+      } else {
+        window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+      }
+      return true
+    } else {
+      debug('scrollToMessage missing ref', { id, hasEl: !!el, hasList: !!list })
+      return false
     }
   }
 
   const scrollToBottom = (smooth = true) => {
-    const list = listRef.current
-    if (!list) return
-    list.scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    const list = getScrollElement()
+    if (!list) {
+      debug('scrollToBottom missing list')
+      return false
+    }
+    debug('scrollToBottom', { scrollHeight: list.scrollHeight, smooth })
+    if ((list as any).scrollTo) {
+      ;(list as any).scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    } else {
+      window.scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    }
+    list.scrollTop = list.scrollHeight
     messenger?.markConversationRead(conversationId)
+    return true
+  }
+
+  const isNearBottom = (list?: HTMLElement | null) => {
+    if (!list) return false
+    const distance = list.scrollHeight - list.scrollTop - list.clientHeight
+    return distance < 80
+  }
+
+  const isMessageVisible = (id: string) => {
+    const el = messageRefs.current.get(id)
+    const list = getScrollElement()
+    if (!el || !list) return false
+    const top = el.offsetTop
+    const bottom = top + el.offsetHeight
+    const viewTop = list.scrollTop
+    const viewBottom = list.scrollTop + list.clientHeight
+    const visible = bottom <= viewBottom && top >= viewTop - 24
+    debug('isMessageVisible', { id, visible, top, bottom, viewTop, viewBottom })
+    return visible
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -202,15 +387,21 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   }
 
   return (
-    <div className="flex flex-col h-full gap-3">
-      <div ref={listRef} className="flex-1 overflow-y-auto space-y-3 px-3 py-2 relative">
+    <div className="flex flex-col h-full min-h-screen gap-3">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto space-y-3 px-3 py-2 relative">
         {localMessages.map((m, idx) => (
           <React.Fragment key={m.id}>
-            {firstUnreadIdx === idx && unreadCount > 10 && (
-              <UnreadDivider onClick={() => scrollToBottom()} />
+            {firstUnreadIdx === idx && unreadCount > 0 && (
+              <UnreadDivider onClick={() => scrollToBottom()} disabled={nearBottom} />
             )}
             <MessageBubble
-              messageRef={(el) => el && messageRefs.current.set(m.id, el)}
+              messageRef={(el) => {
+                if (!el) return
+                const existing = messageRefs.current.get(m.id)
+                if (existing === el) return
+                messageRefs.current.set(m.id, el)
+                debug('messageRef set', { id: m.id })
+              }}
               message={m}
               myPubkey={myPubkey}
               onReply={() => setReplyTarget(m)}
@@ -221,6 +412,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
               pickerOpen={pickerOpen === m.id}
               setPickerOpen={(open) => setPickerOpen(open ? m.id : null)}
               resolveReply={async (_id) => {
+                debug('fetch messages (resolveReply)', { conversationId, replyId: _id })
                 const msgs = await messenger.getConversationMessages(conversationId)
                 setLocalMessages(msgs)
               }}
@@ -231,7 +423,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         {localMessages.length === 0 && (
           <div className="text-sm text-muted-foreground text-center py-6">No messages yet.</div>
         )}
-        {showScrollBottom && firstUnreadIdx < 0 && (
+        {showScrollBottom && (
           <div className="flex justify-center">
             <Button
               variant="secondary"
@@ -253,13 +445,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         sending={sending}
         replyTarget={replyTarget}
         myPubkey={myPubkey}
-      clearReply={() => setReplyTarget(null)}
-      onKeyDown={handleKeyDown}
-      onAddMedia={handleMediaUpload}
-      onAddEmoji={(emoji) => setDraft((d) => `${d}${emoji}`)}
-      uploading={uploading}
-      uploadProgress={uploadProgress}
-    />
+        clearReply={() => setReplyTarget(null)}
+        onKeyDown={handleKeyDown}
+        onAddMedia={handleMediaUpload}
+        onAddEmoji={(emoji) => setDraft((d) => `${d}${emoji}`)}
+        uploading={uploading}
+        uploadProgress={uploadProgress}
+      />
     </div>
   )
 }
@@ -317,8 +509,11 @@ function MessageBubble({
 
   const { profile: replyProfile } = useFetchProfile(replyMessage?.sender.pubkey || '')
 
+  const attemptedResolve = useRef<Set<string>>(new Set())
+
   useEffect(() => {
-    if (message.replyTo && !replyMessage) {
+    if (message.replyTo && !replyMessage && !attemptedResolve.current.has(message.replyTo)) {
+      attemptedResolve.current.add(message.replyTo)
       resolveReply(message.replyTo)
     }
   }, [message.replyTo, replyMessage, resolveReply])
@@ -449,6 +644,10 @@ function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const mentionRequest = useRef<number>(0)
 
+  useEffect(() => {
+    debug('composer render', { isSmallScreen, draftLength: draft.length, replyTarget: replyTarget?.id })
+  }, [isSmallScreen, draft.length, replyTarget?.id])
+
   const handleMediaClick = () => {
     if (!fileInputRef.current) {
       fileInputRef.current = document.createElement('input')
@@ -471,10 +670,12 @@ function ChatComposer({
       return
     }
     const q = match[1]
+    debug('mention query', { q })
     setMentionQuery(q)
     const reqId = ++mentionRequest.current
     client.searchProfilesFromLocal(q, 8).then((res) => {
       if (mentionRequest.current !== reqId) return
+      debug('mention results', { q, count: res.length })
       setMentionResults(res)
     })
   }, [draft])
@@ -483,6 +684,7 @@ function ChatComposer({
     const npub = nip19.npubEncode(pubkey)
     const token = `nostr:${npub}`
     const next = draft.replace(/@([\w\.-]{1,32})$/, `${token} `)
+    debug('insertMention', { pubkey, token })
     setDraft(next)
     setMentionResults([])
     setMentionQuery('')
@@ -551,6 +753,11 @@ function ChatComposer({
             className="min-h-[40px] max-h-40 resize-none rounded-2xl"
             rows={1}
           />
+          {draft && (
+            <div className="mt-1 text-xs text-muted-foreground border rounded-md p-2 bg-muted/40">
+              <Content content={draft} />
+            </div>
+          )}
           {mentionResults.length > 0 && (
             <div className="mt-1 rounded-md border bg-popover text-popover-foreground shadow">
               {mentionResults.map((res) => (
@@ -610,6 +817,11 @@ function ChatComposer({
           placeholder="Type a message"
           className="min-h-[80px] max-h-60 resize-none"
         />
+        {draft && (
+          <div className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/40">
+            <Content content={draft} />
+          </div>
+        )}
         {mentionResults.length > 0 && mentionQuery && (
           <div className="rounded-md border bg-popover text-popover-foreground shadow max-h-64 overflow-y-auto">
             {mentionResults.map((res) => (
@@ -637,13 +849,19 @@ function ChatComposer({
   )
 }
 
-function UnreadDivider({ onClick }: { onClick: () => void }) {
+function UnreadDivider({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-center py-1">
-      <Button variant="secondary" size="sm" className="rounded-full" onClick={onClick}>
-        <ChevronDown className="h-4 w-4" />
-        <span className="ml-1">Jump to bottom</span>
-      </Button>
+      {disabled ? (
+        <div className="text-xs text-muted-foreground px-3 py-1 rounded-full border bg-muted/40">
+          Unread messages
+        </div>
+      ) : (
+        <Button variant="secondary" size="sm" className="rounded-full" onClick={onClick}>
+          <ChevronDown className="h-4 w-4" />
+          <span className="ml-1">Jump to bottom</span>
+        </Button>
+      )}
     </div>
   )
 }

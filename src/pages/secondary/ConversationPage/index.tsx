@@ -18,6 +18,8 @@ import UserAvatar, { SimpleUserAvatar } from '@/components/UserAvatar'
 import client from '@/services/client.service'
 import { cn } from '@/lib/utils'
 
+const debug = (...args: any[]) => console.debug('[ConversationPage]', ...args)
+
 const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { pop } = useSecondaryPage()
   const conversationId = useMemo(() => window.location.pathname.split('/').pop() || '', [])
@@ -27,6 +29,10 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [showMembers, setShowMembers] = useState(false)
   const [nameMap, setNameMap] = useState<Record<string, string>>({})
   const [groupImage, setGroupImage] = useState<string | null>(null)
+
+  useEffect(() => {
+    debug('render', { conversationId, hasMeta: !!meta, participants: meta?.participants?.length })
+  }, [conversationId, meta?.id, meta?.participants?.length])
 
   useEffect(() => {
     let cancelled = false
@@ -63,11 +69,13 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
     if (!meta || !messenger) return
     let cancelled = false
     ;(async () => {
+      debug('group image fetch', { conversationId: meta.id })
       const msgs = await messenger.getConversationMessages(meta.id, 1)
       if (cancelled) return
       const first = msgs?.[0]
       const imageTag = first?.tags?.find((t) => ['image', 'img', 'picture', 'avatar'].includes(t[0]))
       setGroupImage(imageTag?.[1] ?? null)
+      debug('group image resolved', { conversationId: meta.id, hasImage: !!imageTag?.[1] })
     })()
     return () => {
       cancelled = true
@@ -116,7 +124,7 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
           </button>
         </div>
       }
-      displayScrollToTopButton
+      displayScrollToTopButton={false}
     >
       <DMThread conversationId={conversationId} myPubkey={pubkey} />
       <MembersDialog

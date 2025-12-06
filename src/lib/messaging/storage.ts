@@ -1,5 +1,7 @@
 import type { ConversationMeta, DMMessage } from './types'
 
+const debug = (...args: any[]) => console.debug('[MessagingStorage]', ...args)
+
 export interface StorageAdapter {
   saveMessage(message: DMMessage): Promise<void>
   getMessages(conversationId: string, limit?: number): Promise<DMMessage[]>
@@ -20,14 +22,17 @@ export class MemoryStorage implements StorageAdapter {
       list.push(message)
       list.sort((a, b) => a.timestamp - b.timestamp)
       this.messages.set(message.conversationId, list)
+      debug('saveMessage', { id: message.id, conversationId: message.conversationId, total: list.length })
     }
   }
 
   async getMessages(conversationId: string, limit?: number): Promise<DMMessage[]> {
     const list = this.messages.get(conversationId) || []
     if (limit && list.length > limit) {
+      debug('getMessages limited', { conversationId, limit, total: list.length })
       return list.slice(-limit)
     }
+    debug('getMessages', { conversationId, total: list.length })
     return [...list]
   }
 
@@ -39,14 +44,18 @@ export class MemoryStorage implements StorageAdapter {
         }
       })
     }
+    debug('markAsRead', { count: messageIds.length })
   }
 
   async getConversations(): Promise<ConversationMeta[]> {
-    return Array.from(this.conversations.values())
+    const list = Array.from(this.conversations.values())
+    debug('getConversations', { total: list.length })
+    return list
   }
 
   async saveConversation(conversation: ConversationMeta): Promise<void> {
     this.conversations.set(conversation.id, conversation)
+    debug('saveConversation', { id: conversation.id, unreadCount: conversation.unreadCount })
   }
 
   async setLastRead(conversationId: string, lastReadId: string, lastReadAt: number): Promise<void> {
@@ -62,5 +71,6 @@ export class MemoryStorage implements StorageAdapter {
         m.read = true
       }
     })
+    debug('setLastRead', { conversationId, lastReadId, lastReadAt })
   }
 }

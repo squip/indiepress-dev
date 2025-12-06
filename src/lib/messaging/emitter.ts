@@ -15,6 +15,10 @@ export class SimpleEmitter<T> {
     handlers?.delete(handler)
   }
 
+  count(event: string) {
+    return this.listeners.get(event)?.size || 0
+  }
+
   emit(event: string, payload: T) {
     const handlers = this.listeners.get(event)
     handlers?.forEach((h) => h(payload))

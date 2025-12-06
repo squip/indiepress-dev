@@ -6,6 +6,9 @@ import { Users, Search } from 'lucide-react'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 import { SimpleUsername } from '@/components/Username'
 import { Input } from '@/components/ui/input'
+import Content from '@/components/Content'
+
+const debug = (...args: any[]) => console.debug('[DMConversations]', ...args)
 
 type ConversationMessageMeta = {
   first?: DMMessage | null
@@ -36,6 +39,7 @@ export function ConversationListPanel({
     if (!messenger) return
     let cancelled = false
     ;(async () => {
+      debug('messageMeta fetch start', { conversations: conversations.length })
       const entries = await Promise.all(
         conversations.map(async (c) => {
           const msgs = await messenger.getConversationMessages(c.id)
@@ -49,6 +53,7 @@ export function ConversationListPanel({
       )
       if (!cancelled) {
         setMessageMeta(Object.fromEntries(entries))
+        debug('messageMeta updated', { conversations: conversations.length })
       }
     })()
     return () => {
@@ -159,7 +164,14 @@ function ConversationListItem({
   return (
     <div
       className="clickable flex items-start gap-3 cursor-pointer px-4 py-3 border-b"
-      onClick={() => onOpenConversation(meta.id)}
+      onClick={() => {
+        debug('open conversation', {
+          conversationId: meta.id,
+          metaUnread: meta.unreadCount,
+          derivedUnread: unreadCount
+        })
+        onOpenConversation(meta.id)
+      }}
     >
       <div className="flex items-center justify-center mt-1.5">
         {others.length <= 1 ? (
@@ -200,7 +212,13 @@ function ConversationListItem({
             />
           ) : null}
           {lastSender && <span className="text-muted-foreground">:</span>}
-          <span className="line-clamp-1">{previewText}</span>
+          <span className="line-clamp-1 flex-1 min-w-0">
+            {last?.type === 'reaction' ? (
+              previewText
+            ) : (
+              <Content content={previewText} className="text-sm text-muted-foreground line-clamp-1" />
+            )}
+          </span>
         </div>
       </div>
 
