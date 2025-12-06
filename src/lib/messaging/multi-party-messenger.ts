@@ -89,6 +89,36 @@ export class MultiPartyMessenger {
     this.subscription = undefined
   }
 
+  async syncRecent(conversationId?: string, since?: number) {
+    if (!this.myPubkey) return 0
+    const lastTs =
+      since ??
+      (conversationId
+        ? (this.messages.get(conversationId)?.at(-1)?.timestamp ?? 0)
+        : Math.max(
+            0,
+            ...Array.from(this.messages.values()).map((list) => list.at(-1)?.timestamp || 0)
+          ))
+    const filter: NDKFilter = {
+      kinds: [NDKKind.GiftWrap],
+      '#p': [this.myPubkey],
+      since: lastTs ? lastTs - 5 : undefined
+    }
+    debug('syncRecent fetch', { conversationId, since: filter.since })
+    let count = 0
+    try {
+      const events = await this.ndk.fetchEvents(filter, { closeOnEose: true })
+      for (const evt of events) {
+        await this.handleIncomingGiftWrap(evt)
+        count++
+      }
+      debug('syncRecent done', { conversationId, fetched: count })
+    } catch (err) {
+      debug('syncRecent error', err)
+    }
+    return count
+  }
+
   async getConversations(): Promise<ConversationMeta[]> {
     const list = Array.from(this.conversations.values()).sort(
       (a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0)

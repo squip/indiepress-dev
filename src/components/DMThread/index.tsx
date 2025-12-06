@@ -87,6 +87,34 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   }, [messenger, conversationId])
 
   useEffect(() => {
+    if (!messenger || !conversationId) return
+    let cancelled = false
+    const sync = async () => {
+      await messenger.syncRecent(conversationId)
+      const msgs = await messenger.getConversationMessages(conversationId)
+      if (cancelled) return
+      setLocalMessages((prev) => {
+        const prevLast = prev.at(-1)?.id
+        const nextLast = msgs.at(-1)?.id
+        if (prev.length === msgs.length && prevLast === nextLast) return prev
+        debug('periodic sync update', {
+          conversationId,
+          prev: prev.length,
+          next: msgs.length,
+          prevLast,
+          nextLast
+        })
+        return msgs
+      })
+    }
+    const id = window.setInterval(sync, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [messenger, conversationId])
+
+  useEffect(() => {
     localCountRef.current = localMessages.length
   }, [localMessages.length])
 
