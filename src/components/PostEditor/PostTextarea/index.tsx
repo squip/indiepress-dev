@@ -38,9 +38,11 @@ const PostTextarea = forwardRef<
     parentEvent?: Event
     onSubmit?: () => void
     className?: string
+    submitOnEnter?: boolean
     onUploadStart?: (file: File, cancel: () => void) => void
     onUploadProgress?: (file: File, progress: number) => void
     onUploadEnd?: (file: File) => void
+    hidePreviewToggle?: boolean
   }
 >(
   (
@@ -51,9 +53,11 @@ const PostTextarea = forwardRef<
       parentEvent,
       onSubmit,
       className,
+      submitOnEnter,
       onUploadStart,
       onUploadProgress,
-      onUploadEnd
+      onUploadEnd,
+      hidePreviewToggle
     },
     ref
   ) => {
@@ -93,6 +97,18 @@ const PostTextarea = forwardRef<
           )
         },
         handleKeyDown: (_view, event) => {
+          if (
+            submitOnEnter &&
+            event.key === 'Enter' &&
+            !event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey
+          ) {
+            event.preventDefault()
+            onSubmit?.()
+            return true
+          }
           // Handle Ctrl+Enter or Cmd+Enter for submit
           if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
             event.preventDefault()
@@ -173,6 +189,10 @@ const PostTextarea = forwardRef<
 
     if (!editor) {
       return null
+    }
+
+    if (hidePreviewToggle) {
+      return <EditorContent className="tiptap" editor={editor} />
     }
 
     return (

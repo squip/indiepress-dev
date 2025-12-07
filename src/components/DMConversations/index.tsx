@@ -6,7 +6,7 @@ import { Users, Search } from 'lucide-react'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 import { SimpleUsername } from '@/components/Username'
 import { Input } from '@/components/ui/input'
-import Content from '@/components/Content'
+import { EmbeddedUrlParser, parseContent } from '@/lib/content-parser'
 
 const debug = (...args: any[]) => console.debug('[DMConversations]', ...args)
 
@@ -22,6 +22,20 @@ function deriveDisplayName(meta: ConversationMeta, myPubkey: string | null): str
   if (others.length === 0) return 'Me'
   if (others.length === 1) return others[0]
   return `${others[0]} +${others.length - 1}`
+}
+
+const LINK_PLACEHOLDER = '[link attachment]'
+
+function formatMessagePreview(text: string) {
+  const nodes = parseContent(text, [EmbeddedUrlParser])
+  if (!nodes?.length) return text
+
+  const replaced = nodes
+    .map((node) => (node.type === 'text' ? node.data : LINK_PLACEHOLDER))
+    .join('')
+  const compacted = replaced.replace(/\s+/g, ' ').trim()
+
+  return compacted || LINK_PLACEHOLDER
 }
 
 export function ConversationListPanel({
@@ -157,6 +171,11 @@ function ConversationListItem({
     return last.content
   }, [last])
 
+  const previewDisplayText = useMemo(() => {
+    if (last?.type === 'reaction') return previewText
+    return formatMessagePreview(previewText)
+  }, [last?.type, previewText])
+
   const lastSender = last?.sender.pubkey
 
   const title = deriveDisplayName(meta, myPubkey)
@@ -212,13 +231,7 @@ function ConversationListItem({
             />
           ) : null}
           {lastSender && <span className="text-muted-foreground">:</span>}
-          <span className="line-clamp-1 flex-1 min-w-0">
-            {last?.type === 'reaction' ? (
-              previewText
-            ) : (
-              <Content content={previewText} className="text-sm text-muted-foreground line-clamp-1" />
-            )}
-          </span>
+          <span className="line-clamp-1 flex-1 min-w-0">{previewDisplayText}</span>
         </div>
       </div>
 

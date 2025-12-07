@@ -757,6 +757,8 @@ function ChatComposer({
             setText={setDraft}
             onSubmit={onSend}
             className="min-h-[40px] rounded-2xl"
+            submitOnEnter={!isSmallScreen}
+            hidePreviewToggle
           />
         </div>
           <Button
@@ -802,6 +804,8 @@ function ChatComposer({
           setText={setDraft}
           onSubmit={onSend}
           className="min-h-[80px]"
+          submitOnEnter={!isSmallScreen}
+          hidePreviewToggle
         />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setDraft('')}>
