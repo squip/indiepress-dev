@@ -33,6 +33,8 @@ export class MultiPartyMessenger {
   private subscription?: NDKSubscription
   private discoveryRelay: string
   private lastReceiptPublishedAt = 0
+  private lastActivityAt = 0
+  private subWatchdog: ReturnType<typeof setInterval> | null = null
   private pendingReadMarkers = new Map<
     string,
     { lastReadAt: number; lastReadId?: string; subject?: string }
@@ -87,10 +89,19 @@ export class MultiPartyMessenger {
   async stop() {
     this.subscription?.stop()
     this.subscription = undefined
+    if (this.subWatchdog) {
+      clearInterval(this.subWatchdog)
+      this.subWatchdog = null
+    }
   }
 
   async syncRecent(conversationId?: string, since?: number) {
     if (!this.myPubkey) return 0
+    const meta = conversationId ? this.conversations.get(conversationId) : undefined
+    const relayUrls = meta
+      ? await this.getRelaySetForConversation(meta.participants)
+      : await this.getRelaySetForConversation([this.myPubkey])
+    const relaySet = relayUrls.length ? NDKRelaySet.fromRelayUrls(relayUrls, this.ndk) : undefined
     const lastTs =
       since ??
       (conversationId
@@ -98,16 +109,21 @@ export class MultiPartyMessenger {
         : Math.max(
             0,
             ...Array.from(this.messages.values()).map((list) => list.at(-1)?.timestamp || 0)
-          ))
+      ))
     const filter: NDKFilter = {
       kinds: [NDKKind.GiftWrap],
       '#p': [this.myPubkey],
       since: lastTs ? lastTs - 5 : undefined
     }
-    debug('syncRecent fetch', { conversationId, since: filter.since })
+    debug('syncRecent fetch', {
+      conversationId,
+      since: filter.since,
+      relays: relayUrls.slice(0, 5),
+      relayCount: relayUrls.length
+    })
     let count = 0
     try {
-      const events = await this.ndk.fetchEvents(filter, { closeOnEose: true })
+      const events = await this.ndk.fetchEvents(filter, { closeOnEose: true, relaySet })
       for (const evt of events) {
         await this.handleIncomingGiftWrap(evt)
         count++
@@ -281,19 +297,23 @@ export class MultiPartyMessenger {
       filters,
       relaySet: relaySet ? Array.from(relaySet.relays.values()).map((r) => r.url) : 'default'
     })
+    this.lastActivityAt = Date.now()
     this.subscription = this.ndk.subscribe(filters, {
       closeOnEose: false,
       subId: 'nip17-messenger',
       ...{ relaySet },
       onEvent: async (evt) => {
+        this.lastActivityAt = Date.now()
         debug('subscription event', { id: evt.id, kind: evt.kind, created_at: evt.created_at })
         await this.handleIncomingGiftWrap(evt)
       }
     })
+    this.startSubscriptionWatchdog()
   }
 
   private async handleIncomingGiftWrap(evt: NDKEvent) {
     if (!this.myPubkey) return
+    this.lastActivityAt = Date.now()
     debug('handleIncomingGiftWrap start', { id: evt.id })
     try {
       const rumor = await this.protocol.unwrapMessage(evt)
@@ -429,7 +449,7 @@ export class MultiPartyMessenger {
       })
       if (dmRelayList) {
         const relays = dmRelayList.getMatchingTags('relay').map((t) => t[1])
-        if (relays.length > 0) return relays
+        if (relays.length > 0) return this.sanitizeRelays(relays)
       }
       const relayList = await this.ndk.fetchEvent({
         kinds: [10002],
@@ -437,7 +457,7 @@ export class MultiPartyMessenger {
       })
       if (relayList) {
         const relays = relayList.getMatchingTags('r').map((t) => t[1])
-        if (relays.length > 0) return relays.slice(0, 3)
+        if (relays.length > 0) return this.sanitizeRelays(relays.slice(0, 3))
       }
     } catch (err) {
       console.warn('Failed to load DM relays for', user.pubkey, err)
@@ -515,7 +535,42 @@ export class MultiPartyMessenger {
       const rels = await this.getUserDMRelays(new NDKUser({ pubkey: pk }))
       rels.forEach((r) => urls.add(r))
     }
-    return Array.from(urls)
+    return this.sanitizeRelays(Array.from(urls))
+  }
+
+  private sanitizeRelays(relays: string[]) {
+    const seen = new Set<string>()
+    const cleaned: string[] = []
+    for (const url of relays) {
+      const trimmed = (url || '').trim()
+      if (!trimmed) continue
+      try {
+        const parsed = new URL(trimmed)
+        if (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') continue
+        const normalized = `wss://${parsed.host}${parsed.pathname}`
+        if (!seen.has(normalized)) {
+          seen.add(normalized)
+          cleaned.push(normalized)
+        }
+      } catch {
+        continue
+      }
+    }
+    return cleaned
+  }
+
+  private startSubscriptionWatchdog() {
+    if (this.subWatchdog) return
+    this.subWatchdog = setInterval(() => {
+      if (!this.subscription) return
+      const idleMs = Date.now() - this.lastActivityAt
+      if (idleMs > 30000) {
+        debug('subscription watchdog resubscribing after idle', { idleMs })
+        this.subscription?.stop()
+        this.subscription = undefined
+        this.subscribe()
+      }
+    }, 10000)
   }
 
   private async loadReadMarkers() {

@@ -79,11 +79,19 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
 
   useEffect(() => {
     if (!messenger || !conversationId) return
-    debug('fetch messages (init)', { conversationId })
-    messenger.getConversationMessages(conversationId).then((msgs) => {
+    let cancelled = false
+    const load = async () => {
+      debug('fetch messages (init)', { conversationId })
+      await messenger.syncRecent(conversationId)
+      const msgs = await messenger.getConversationMessages(conversationId)
+      if (cancelled) return
       debug('initial messages', { conversationId, count: msgs.length })
       setLocalMessages(msgs)
-    })
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
   }, [messenger, conversationId])
 
   useEffect(() => {
