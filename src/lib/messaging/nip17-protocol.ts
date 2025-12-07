@@ -28,31 +28,46 @@ export class MultiPartyNIP17Protocol {
     participants: NDKUser[],
     content: string,
     opts: SendMessageOptions = {}
-  ): Promise<NDKEvent[]> {
+  ): Promise<{ wraps: NDKEvent[]; rumor: NostrEvent }> {
     const sender = await this.signer.user()
-    const rumor = this.buildRumor(participants, sender, content, opts)
+    const rumorEvent = this.buildRumor(participants, sender, content, opts)
     const relays = await this.collectRelaySet(participants, sender)
     const relaySet = relays.length ? NDKRelaySet.fromRelayUrls(relays, this.ndk) : undefined
 
     const wraps: NDKEvent[] = []
     for (const participant of participants) {
-      const wrapped = await giftWrap(rumor, participant, this.signer)
+      const wrapped = await giftWrap(rumorEvent, participant, this.signer)
       await wrapped.publish(relaySet)
       wraps.push(wrapped)
     }
     // keep a copy for sender if not already included
     if (!participants.find((p) => p.pubkey === sender.pubkey)) {
-      const wrappedSelf = await giftWrap(rumor, new NDKUser({ pubkey: sender.pubkey }), this.signer)
+      const wrappedSelf = await giftWrap(
+        rumorEvent,
+        new NDKUser({ pubkey: sender.pubkey }),
+        this.signer
+      )
       await wrappedSelf.publish(relaySet)
       wraps.push(wrappedSelf)
     }
-    return wraps
+    const rumor = rumorEvent.rawEvent()
+    if (!rumor.id) {
+      rumor.id = getEventHash({
+        ...rumor,
+        kind: rumor.kind ?? 0,
+        created_at: rumor.created_at ?? 0,
+        tags: rumor.tags ?? [],
+        content: rumor.content ?? '',
+        pubkey: rumor.pubkey ?? ''
+      })
+    }
+    return { wraps, rumor }
   }
 
   async sendReaction(
     participants: NDKUser[],
     reaction: SendReactionOptions
-  ): Promise<NDKEvent[]> {
+  ): Promise<{ wraps: NDKEvent[]; rumor: NostrEvent }> {
     const sender = await this.signer.user()
     const rumor = new NDKEvent(this.ndk)
     rumor.kind = NDKKind.Reaction
@@ -73,7 +88,18 @@ export class MultiPartyNIP17Protocol {
       await wrapped.publish(relaySet)
       wraps.push(wrapped)
     }
-    return wraps
+    const rumorEvent = rumor.rawEvent()
+    if (!rumorEvent.id) {
+      rumorEvent.id = getEventHash({
+        ...rumorEvent,
+        kind: rumorEvent.kind ?? 0,
+        created_at: rumorEvent.created_at ?? 0,
+        tags: rumorEvent.tags ?? [],
+        content: rumorEvent.content ?? '',
+        pubkey: rumorEvent.pubkey ?? ''
+      })
+    }
+    return { wraps, rumor: rumorEvent }
   }
 
   async unwrapMessage(wrappedEvent: NDKEvent): Promise<NostrEvent | null> {

@@ -171,28 +171,10 @@ export class MultiPartyMessenger {
       contentLength: content?.length || 0,
       opts
     })
-    const wraps = await this.protocol.sendMessage(participants, content, opts)
+    const { rumor } = await this.protocol.sendMessage(participants, content, opts)
     const senderPubkey = this.myPubkey!
-    const tags = []
-    if (opts.subject) tags.push(['subject', opts.subject])
-    if (opts.replyTo) tags.push(['e', opts.replyTo])
-
-    const rumorMessage: DMMessage = {
-      id: wraps[0]?.id ?? `${Date.now()}`,
-      type: 'text',
-      content,
-      sender: new NDKUser({ pubkey: senderPubkey }),
-      recipients: participants.filter((p) => p.pubkey !== senderPubkey),
-      timestamp: Math.floor(Date.now() / 1000),
-      protocol: 'nip17',
-      read: true,
-      conversationId: this.conversationIdFromParticipants([
-        ...participants.map((p) => p.pubkey),
-        senderPubkey
-      ]),
-      replyTo: opts.replyTo,
-      tags
-    }
+    const rumorMessage = this.protocol.rumorToMessage(rumor, senderPubkey)
+    rumorMessage.read = true
     await this.persistMessage(rumorMessage)
     await this.publishReadMarker(rumorMessage.conversationId, rumorMessage.id, rumorMessage.timestamp)
     debug('sendMessage persisted', { id: rumorMessage.id, conversationId: rumorMessage.conversationId })
@@ -209,23 +191,12 @@ export class MultiPartyMessenger {
     if (!meta) return null
     debug('sendReaction', { conversationId, targetEventId, content })
     const participants = meta.participants.map((p) => new NDKUser({ pubkey: p }))
-    const wraps = await this.protocol.sendReaction(participants, {
+    const { rumor } = await this.protocol.sendReaction(participants, {
       targetEventId,
       content
     })
-    const message: DMMessage = {
-      id: wraps[0]?.id ?? `${Date.now()}`,
-      type: 'reaction',
-      content,
-      sender: new NDKUser({ pubkey: this.myPubkey! }),
-      recipients: participants.filter((p) => p.pubkey !== this.myPubkey),
-      timestamp: Math.floor(Date.now() / 1000),
-      protocol: 'nip17',
-      read: true,
-      conversationId,
-      replyTo: targetEventId,
-      tags: [['e', targetEventId]]
-    }
+    const message = this.protocol.rumorToMessage(rumor, this.myPubkey!)
+    message.read = true
     await this.persistMessage(message)
     debug('sendReaction persisted', { id: message.id, conversationId })
     return message

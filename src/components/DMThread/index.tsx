@@ -51,6 +51,14 @@ function formatName(pubkey: string, myPubkey: string | null) {
 
 type ReactionStat = { emoji: string; count: number; self: boolean }
 
+function mergeMessagesById(existing: DMMessage[], incoming: DMMessage | DMMessage[]) {
+  const list = Array.isArray(incoming) ? incoming : [incoming]
+  const map = new Map<string, DMMessage>()
+  existing.forEach((m) => map.set(m.id, m))
+  list.forEach((m) => map.set(m.id, m))
+  return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp)
+}
+
 export function DMThread({ conversationId, myPubkey }: { conversationId: string; myPubkey: string | null }) {
   const { messenger, conversations, ready, unsupportedReason, drainBufferedMessages } = useMessenger()
   const { isSmallScreen } = useScreenSize()
@@ -140,14 +148,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
           read: event.message.read,
           localCount: localCountRef.current
         })
-        setLocalMessages((prev) => {
-          const exists = prev.find((m) => m.id === event.message.id)
-          const next = exists
-            ? prev.map((m) => (m.id === event.message.id ? event.message : m))
-            : [...prev, event.message]
-          next.sort((a, b) => a.timestamp - b.timestamp)
-          return next
-        })
+        setLocalMessages((prev) => mergeMessagesById(prev, event.message))
       }
     })
     return () => {
@@ -296,7 +297,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         replyTo: replyTarget?.id
       })
       debug('handleSend result', { added: msgs.length })
-      setLocalMessages((prev) => [...prev, ...msgs])
+      setLocalMessages((prev) => mergeMessagesById(prev, msgs))
       setDraft('')
       setReplyTarget(null)
       await messenger.markConversationRead(conversationId)
