@@ -267,11 +267,10 @@ export class MultiPartyMessenger {
         if (unreadIds.includes(m.id)) m.read = true
       })
     }
-    const meta = this.conversations.get(conversationId)
-    if (meta) {
-      meta.unreadCount = 0
-      meta.lastReadAt = last.timestamp
-      meta.lastReadId = last.id
+    const metaExisting = this.conversations.get(conversationId)
+    if (metaExisting) {
+      const meta = { ...metaExisting, unreadCount: 0, lastReadAt: last.timestamp, lastReadId: last.id }
+      this.conversations.set(conversationId, meta)
       await this.storage.saveConversation(meta)
       await this.storage.setLastRead(conversationId, last.id, last.timestamp)
       this.emit({ type: 'conversation-updated', conversation: meta })
@@ -372,36 +371,37 @@ export class MultiPartyMessenger {
     const existing = this.conversations.get(id)
     if (existing) {
       const prev = { ...existing }
-      existing.lastMessageAt = message.timestamp
+      const updated: ConversationMeta = { ...existing, lastMessageAt: message.timestamp }
       if (message.sender.pubkey !== this.myPubkey) {
-        if (!message.read) existing.unreadCount += 1
+        if (!message.read) updated.unreadCount = (updated.unreadCount || 0) + 1
       }
-      if (subject) existing.subject = subject
+      if (subject) updated.subject = subject
       const pending = this.pendingReadMarkers.get(id)
       if (pending) {
-        existing.lastReadAt = Math.max(existing.lastReadAt || 0, pending.lastReadAt)
-        if (pending.lastReadId) existing.lastReadId = pending.lastReadId
+        updated.lastReadAt = Math.max(updated.lastReadAt || 0, pending.lastReadAt)
+        if (pending.lastReadId) updated.lastReadId = pending.lastReadId
         const msgs = this.messages.get(id) || []
         let unread = 0
         msgs.forEach((m) => {
-          if (m.timestamp <= (existing.lastReadAt || 0)) m.read = true
+          if (m.timestamp <= (updated.lastReadAt || 0)) m.read = true
           if (!m.read && m.sender.pubkey !== this.myPubkey) unread += 1
         })
-        existing.unreadCount = unread
+        updated.unreadCount = unread
       }
-      await this.storage.saveConversation(existing)
+      this.conversations.set(id, updated)
+      await this.storage.saveConversation(updated)
       const changed =
-        prev.lastMessageAt !== existing.lastMessageAt ||
-        prev.unreadCount !== existing.unreadCount ||
-        prev.lastReadAt !== existing.lastReadAt ||
-        prev.lastReadId !== existing.lastReadId ||
-        prev.subject !== existing.subject
+        prev.lastMessageAt !== updated.lastMessageAt ||
+        prev.unreadCount !== updated.unreadCount ||
+        prev.lastReadAt !== updated.lastReadAt ||
+        prev.lastReadId !== updated.lastReadId ||
+        prev.subject !== updated.subject
       if (changed) {
-        this.emit({ type: 'conversation-updated', conversation: existing })
+        this.emit({ type: 'conversation-updated', conversation: updated })
         debug('ensureConversationMeta updated', {
           id,
-          unread: existing.unreadCount,
-          lastMessageAt: existing.lastMessageAt
+          unread: updated.unreadCount,
+          lastMessageAt: updated.lastMessageAt
         })
       } else {
         debug('ensureConversationMeta skipped emit (no change)', { id })
@@ -620,26 +620,27 @@ export class MultiPartyMessenger {
             this.pendingReadMarkers.set(convId, { lastReadAt: ts, lastReadId: last_e, subject: room.subject })
             continue
           }
-          meta.lastReadAt = Math.max(meta.lastReadAt || 0, ts)
-          if (last_e) meta.lastReadId = last_e
+          const updated = { ...meta }
+          updated.lastReadAt = Math.max(updated.lastReadAt || 0, ts)
+          if (last_e) updated.lastReadId = last_e
           const msgs = this.messages.get(convId) || []
           let unread = 0
           msgs.forEach((m) => {
-            if (m.timestamp <= (meta.lastReadAt || 0)) {
+            if (m.timestamp <= (updated.lastReadAt || 0)) {
               m.read = true
             }
             if (!m.read && m.sender.pubkey !== this.myPubkey) unread += 1
           })
-          meta.unreadCount = unread
-          await this.storage.saveConversation(meta)
-          this.conversations.set(convId, meta)
-          this.emit({ type: 'conversation-updated', conversation: meta })
+          updated.unreadCount = unread
+          await this.storage.saveConversation(updated)
+          this.conversations.set(convId, updated)
+          this.emit({ type: 'conversation-updated', conversation: updated })
           debug('loadReadMarkers applied', {
             convId,
             ts,
             last_e,
-            unread: meta.unreadCount,
-            lastReadAt: meta.lastReadAt
+            unread: updated.unreadCount,
+            lastReadAt: updated.lastReadAt
           })
         }
       }

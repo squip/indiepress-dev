@@ -13,7 +13,7 @@ import Text from '@tiptap/extension-text'
 import { TextSelection } from '@tiptap/pm/state'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Event } from '@nostr/tools/wasm'
-import { Dispatch, forwardRef, SetStateAction, useImperativeHandle, useState } from 'react'
+import { Dispatch, forwardRef, SetStateAction, useEffect, useImperativeHandle, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ClipboardAndDropHandler } from './ClipboardAndDropHandler'
 import Emoji from './Emoji'
@@ -26,6 +26,7 @@ export type TPostTextareaHandle = {
   appendText: (text: string, addNewline?: boolean) => void
   insertText: (text: string) => void
   insertEmoji: (emoji: string | TEmoji) => void
+  setContent: (text: string) => void
 }
 
 const PostTextarea = forwardRef<
@@ -152,8 +153,23 @@ const PostTextarea = forwardRef<
             editor.chain().insertContent(emojiNode).insertContent(' ').run()
           }
         }
+      },
+      setContent: (val: string) => {
+        if (editor) {
+          editor.commands.setContent(val || '')
+          setText(val || '')
+        }
       }
     }))
+
+    useEffect(() => {
+      if (!editor) return
+      const current = parseEditorJsonToText(editor.getJSON())
+      if (text !== current) {
+        editor.commands.setContent(text || '')
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [text, editor])
 
     if (!editor) {
       return null

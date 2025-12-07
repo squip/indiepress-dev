@@ -5,12 +5,12 @@ import React, {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent
+  type Dispatch,
+  type SetStateAction
 } from 'react'
 import mediaUploadService from '@/services/media-upload.service'
 import * as nip19 from '@nostr/tools/nip19'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
 import { useMessenger } from '@/providers/MessengerProvider'
 import { NDKUser } from '@nostr-dev-kit/ndk'
 import type { DMMessage } from '@/lib/messaging/types'
@@ -21,8 +21,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import EmojiPicker from '@/components/EmojiPicker'
 import Content from '@/components/Content'
 import { useFetchProfile } from '@/hooks'
-import client from '@/services/client.service'
-import { NostrUser } from '@nostr/gadgets/metadata'
 import {
   Image as ImageIcon,
   Smile,
@@ -33,6 +31,7 @@ import {
   X,
   Plus
 } from 'lucide-react'
+import PostTextarea, { TPostTextareaHandle } from '@/components/PostEditor/PostTextarea'
 
 const debug = (...args: any[]) => console.debug('[DMThread]', ...args)
 
@@ -407,13 +406,6 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     return visible
   }
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !isSmallScreen) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
   if (unsupportedReason) {
     return <div className="p-4 text-sm text-muted-foreground">{unsupportedReason}</div>
   }
@@ -486,9 +478,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         replyTarget={replyTarget}
         myPubkey={myPubkey}
         clearReply={() => setReplyTarget(null)}
-        onKeyDown={handleKeyDown}
         onAddMedia={handleMediaUpload}
-        onAddEmoji={(emoji) => setDraft((d) => `${d}${emoji}`)}
         uploading={uploading}
         uploadProgress={uploadProgress}
       />
@@ -659,30 +649,24 @@ function ChatComposer({
   replyTarget,
   myPubkey,
   clearReply,
-  onKeyDown,
   onAddMedia,
-  onAddEmoji,
   uploading,
   uploadProgress
 }: {
   isSmallScreen: boolean
   draft: string
-  setDraft: (v: string) => void
+  setDraft: Dispatch<SetStateAction<string>>
   onSend: () => void
   sending: boolean
   replyTarget: DMMessage | null
   myPubkey: string | null
   clearReply: () => void
-  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   onAddMedia: (file: File) => void
-  onAddEmoji: (emoji: string) => void
   uploading: boolean
   uploadProgress: number | null
 }) {
-  const [mentionQuery, setMentionQuery] = useState('')
-  const [mentionResults, setMentionResults] = useState<NostrUser[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const mentionRequest = useRef<number>(0)
+  const editorRef = useRef<TPostTextareaHandle | null>(null)
 
   useEffect(() => {
     debug('composer render', { isSmallScreen, draftLength: draft.length, replyTarget: replyTarget?.id })
@@ -702,32 +686,12 @@ function ChatComposer({
     fileInputRef.current.click()
   }
 
-  useEffect(() => {
-    const match = draft.match(/@([\w\.-]{1,32})$/)
-    if (!match) {
-      setMentionQuery('')
-      setMentionResults([])
-      return
+  const handleAddEmoji = (emoji: string) => {
+    if (editorRef.current) {
+      editorRef.current.insertEmoji(emoji)
+    } else {
+      setDraft((d) => `${d}${emoji}`)
     }
-    const q = match[1]
-    debug('mention query', { q })
-    setMentionQuery(q)
-    const reqId = ++mentionRequest.current
-    client.searchProfilesFromLocal(q, 8).then((res) => {
-      if (mentionRequest.current !== reqId) return
-      debug('mention results', { q, count: res.length })
-      setMentionResults(res)
-    })
-  }, [draft])
-
-  const insertMention = (pubkey: string) => {
-    const npub = nip19.npubEncode(pubkey)
-    const token = `nostr:${npub}`
-    const next = draft.replace(/@([\w\.-]{1,32})$/, `${token} `)
-    debug('insertMention', { pubkey, token })
-    setDraft(next)
-    setMentionResults([])
-    setMentionQuery('')
   }
 
   const emojiButton = (
@@ -740,7 +704,7 @@ function ChatComposer({
       <PopoverContent className="p-0" align="start">
         <EmojiPicker
           onEmojiClick={(emoji) => {
-            if (emoji) onAddEmoji(typeof emoji === 'string' ? emoji : (emoji as any).native || '+')
+            if (emoji) handleAddEmoji(typeof emoji === 'string' ? emoji : (emoji as any).native || '+')
           }}
         />
       </PopoverContent>
@@ -775,10 +739,10 @@ function ChatComposer({
                     Emoji
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="p-0" align="start">
-                  <EmojiPicker
-                    onEmojiClick={(emoji) => {
-                      if (emoji) onAddEmoji(typeof emoji === 'string' ? emoji : (emoji as any).native || '+')
+                  <PopoverContent className="p-0" align="start">
+                    <EmojiPicker
+                      onEmojiClick={(emoji) => {
+                      if (emoji) handleAddEmoji(typeof emoji === 'string' ? emoji : (emoji as any).native || '+')
                     }}
                   />
                 </PopoverContent>
@@ -786,32 +750,13 @@ function ChatComposer({
             </PopoverContent>
           </Popover>
         <div className="flex-1">
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Message"
-            className="min-h-[40px] max-h-40 resize-none rounded-2xl"
-            rows={1}
+          <PostTextarea
+            ref={editorRef}
+            text={draft}
+            setText={setDraft}
+            onSubmit={onSend}
+            className="min-h-[40px] rounded-2xl"
           />
-          {draft && (
-            <div className="mt-1 text-xs text-muted-foreground border rounded-md p-2 bg-muted/40">
-              <Content content={draft} />
-            </div>
-          )}
-          {mentionResults.length > 0 && (
-            <div className="mt-1 rounded-md border bg-popover text-popover-foreground shadow">
-              {mentionResults.map((res) => (
-                <button
-                  key={res.pubkey}
-                  className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground flex items-center gap-2"
-                  onClick={() => insertMention(res.pubkey)}
-                >
-                  <SimpleUserAvatar profile={res} size="small" />
-                  <div className="truncate">{res?.shortName || shortNpub(res.pubkey)}</div>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
           <Button
             variant="ghost"
@@ -850,32 +795,13 @@ function ChatComposer({
             {uploadProgress !== null && <span>{Math.round(uploadProgress)}%</span>}
           </div>
         )}
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Type a message"
-          className="min-h-[80px] max-h-60 resize-none"
+        <PostTextarea
+          ref={editorRef}
+          text={draft}
+          setText={setDraft}
+          onSubmit={onSend}
+          className="min-h-[80px]"
         />
-        {draft && (
-          <div className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/40">
-            <Content content={draft} />
-          </div>
-        )}
-        {mentionResults.length > 0 && mentionQuery && (
-          <div className="rounded-md border bg-popover text-popover-foreground shadow max-h-64 overflow-y-auto">
-            {mentionResults.map((res) => (
-              <button
-                key={res.pubkey}
-                className="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground flex items-center gap-2"
-                onClick={() => insertMention(res.pubkey)}
-              >
-                <SimpleUserAvatar profile={res} size="small" />
-                <div className="truncate">{res?.shortName || shortNpub(res.pubkey)}</div>
-              </button>
-            ))}
-          </div>
-        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setDraft('')}>
             Cancel
