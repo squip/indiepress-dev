@@ -37,6 +37,7 @@ export class MultiPartyMessenger {
   private subWatchdog: ReturnType<typeof setInterval> | null = null
   private relayCache = new Map<string, string[]>()
   private explicitRelays: string[]
+  private lastMarkDebugSig = new Map<string, string>()
   private pendingReadMarkers = new Map<
     string,
     { lastReadAt: number; lastReadId?: string; subject?: string }
@@ -242,13 +243,17 @@ export class MultiPartyMessenger {
     const unreadIds = msgs
       .filter((m) => !m.read && m.sender.pubkey !== this.myPubkey)
       .map((m) => m.id)
-    debug('markConversationRead', {
-      conversationId,
-      total: msgs.length,
-      unread: unreadIds.length,
-      lastId: last.id,
-      lastAt: last.timestamp
-    })
+    const debugSig = `${last.id}:${unreadIds.length}:${msgs.length}`
+    if (this.lastMarkDebugSig.get(conversationId) !== debugSig) {
+      debug('markConversationRead', {
+        conversationId,
+        total: msgs.length,
+        unread: unreadIds.length,
+        lastId: last.id,
+        lastAt: last.timestamp
+      })
+      this.lastMarkDebugSig.set(conversationId, debugSig)
+    }
     if (unreadIds.length === 0) {
       const meta = this.conversations.get(conversationId)
       if (meta && meta.lastReadId === last.id) {
