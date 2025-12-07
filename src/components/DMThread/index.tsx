@@ -668,6 +668,7 @@ function ChatComposer({
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<TPostTextareaHandle | null>(null)
+  const mobileComposerOffset = 'calc(env(safe-area-inset-bottom) + 3rem)'
 
   useEffect(() => {
     debug('composer render', { isSmallScreen, draftLength: draft.length, replyTarget: replyTarget?.id })
@@ -714,7 +715,10 @@ function ChatComposer({
 
   if (isSmallScreen) {
     return (
-      <div className="sticky bottom-0 left-0 right-0 bg-background px-3 py-2 border-t space-y-2">
+      <div
+        className="sticky left-0 right-0 bg-background px-3 py-2 border-t space-y-2 z-40"
+        style={{ bottom: mobileComposerOffset }}
+      >
         {replyTarget && (
           <div className="flex items-center justify-between text-xs text-muted-foreground px-2">
             <span>Replying to {formatName(replyTarget.sender.pubkey, myPubkey)}: {replyTarget.content || 'Encrypted message'}</span>

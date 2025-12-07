@@ -73,7 +73,7 @@ const PostTextarea = forwardRef<
         HardBreak,
         Placeholder.configure({
           placeholder:
-            t('Write something...') + ' (' + t('Paste or drop media files to upload') + ')'
+            t('Enter text, paste or upload media')
         }),
         Emoji.configure({
           suggestion: emojiSuggestion
