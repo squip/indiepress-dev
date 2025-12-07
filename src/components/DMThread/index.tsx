@@ -53,7 +53,7 @@ function formatName(pubkey: string, myPubkey: string | null) {
 type ReactionStat = { emoji: string; count: number; self: boolean }
 
 export function DMThread({ conversationId, myPubkey }: { conversationId: string; myPubkey: string | null }) {
-  const { messenger, conversations, ready, unsupportedReason } = useMessenger()
+  const { messenger, conversations, ready, unsupportedReason, drainBufferedMessages } = useMessenger()
   const { isSmallScreen } = useScreenSize()
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -84,9 +84,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       debug('fetch messages (init)', { conversationId })
       await messenger.syncRecent(conversationId)
       const msgs = await messenger.getConversationMessages(conversationId)
+      const buffered = drainBufferedMessages(conversationId)
+      const merged = [...msgs, ...buffered]
+        .reduce<Map<string, DMMessage>>((map, msg) => map.set(msg.id, msg), new Map())
+      const mergedList = Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp)
       if (cancelled) return
-      debug('initial messages', { conversationId, count: msgs.length })
-      setLocalMessages(msgs)
+      debug('initial messages', { conversationId, count: mergedList.length, buffered: buffered.length })
+      setLocalMessages(mergedList)
     }
     load()
     return () => {

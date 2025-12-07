@@ -26,3 +26,6 @@ dev-dist
 *.sw?
 
 .vercel
+
+/indiepress-dev-2/*
+

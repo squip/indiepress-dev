@@ -16,6 +16,7 @@ type MessengerContextType = {
   conversations: ConversationMeta[]
   ready: boolean
   unsupportedReason?: string
+  drainBufferedMessages: (conversationId: string) => DMMessage[]
 }
 
 const MessengerContext = createContext<MessengerContextType | undefined>(undefined)
@@ -33,6 +34,7 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
   const [unsupportedReason, setUnsupportedReason] = useState<string | undefined>(undefined)
   const ready = useRef(false)
   const [readyFlag, setReadyFlag] = useState(false)
+  const messageBufferRef = useRef<Map<string, DMMessage[]>>(new Map())
 
   useEffect(() => {
     debug('ready state', { readyFlag, hasMessenger: !!messenger })
@@ -143,6 +145,11 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
               conversationId: event.message.conversationId,
               read: event.message.read
             })
+            // buffer in case UI listeners are not attached yet
+            const buf = messageBufferRef.current.get(event.message.conversationId) || []
+            buf.push(event.message)
+            // keep the latest 30 per conversation to avoid unbounded growth
+            messageBufferRef.current.set(event.message.conversationId, buf.slice(-30))
           } else if (
             event.type === 'conversation-created' ||
             event.type === 'conversation-updated'
@@ -195,7 +202,12 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
       messenger,
       conversations,
       ready: readyFlag,
-      unsupportedReason
+      unsupportedReason,
+      drainBufferedMessages: (conversationId: string) => {
+        const buf = messageBufferRef.current.get(conversationId) || []
+        messageBufferRef.current.delete(conversationId)
+        return buf
+      }
     }),
     [messenger, conversations, unsupportedReason, readyFlag]
   )

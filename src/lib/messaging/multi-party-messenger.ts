@@ -35,6 +35,8 @@ export class MultiPartyMessenger {
   private lastReceiptPublishedAt = 0
   private lastActivityAt = 0
   private subWatchdog: ReturnType<typeof setInterval> | null = null
+  private relayCache = new Map<string, string[]>()
+  private explicitRelays: string[]
   private pendingReadMarkers = new Map<
     string,
     { lastReadAt: number; lastReadId?: string; subject?: string }
@@ -44,6 +46,7 @@ export class MultiPartyMessenger {
     this.ndk = ndk
     this.discoveryRelay = options.discoveryRelay || DEFAULT_DISCOVERY
     this.storage = options.storage || new MemoryStorage()
+    this.explicitRelays = this.sanitizeRelays(options.explicitRelayUrls || [])
 
     const signer = ndk.signer
     if (!signer) {
@@ -288,14 +291,11 @@ export class MultiPartyMessenger {
       kinds: [NDKKind.GiftWrap],
       '#p': [this.myPubkey]
     }
-    const userRelays = await this.getUserDMRelays(new NDKUser({ pubkey: this.myPubkey }))
-    const relaySet =
-      userRelays.length > 0
-        ? NDKRelaySet.fromRelayUrls(Array.from(new Set([...userRelays, this.discoveryRelay])), this.ndk)
-        : undefined
+    const relays = await this.getRelaySetForConversation([this.myPubkey])
+    const relaySet = relays.length ? NDKRelaySet.fromRelayUrls(relays, this.ndk) : undefined
     debug('subscribe', {
       filters,
-      relaySet: relaySet ? Array.from(relaySet.relays.values()).map((r) => r.url) : 'default'
+      relaySet: relays.length ? relays : 'default'
     })
     this.lastActivityAt = Date.now()
     this.subscription = this.ndk.subscribe(filters, {
@@ -529,13 +529,18 @@ export class MultiPartyMessenger {
   }
 
   private async getRelaySetForConversation(participants: string[]): Promise<string[]> {
-    const urls = new Set<string>()
-    urls.add(this.discoveryRelay)
+    const key = this.conversationIdFromParticipants(participants)
+    if (this.relayCache.has(key)) return this.relayCache.get(key)!
+
+    const urls = new Set<string>([this.discoveryRelay, ...this.explicitRelays])
     for (const pk of participants) {
       const rels = await this.getUserDMRelays(new NDKUser({ pubkey: pk }))
       rels.forEach((r) => urls.add(r))
     }
-    return this.sanitizeRelays(Array.from(urls))
+    const sanitized = this.sanitizeRelays(Array.from(urls))
+    this.relayCache.set(key, sanitized)
+    debug('relay set resolved', { conversationId: key, relays: sanitized })
+    return sanitized
   }
 
   private sanitizeRelays(relays: string[]) {
