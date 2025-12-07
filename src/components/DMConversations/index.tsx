@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMessenger } from '@/providers/MessengerProvider'
 import type { ConversationMeta, DMMessage } from '@/lib/messaging/types'
 import UserAvatar from '@/components/UserAvatar'
@@ -7,6 +7,9 @@ import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 import { SimpleUsername } from '@/components/Username'
 import { Input } from '@/components/ui/input'
 import { EmbeddedUrlParser, parseContent } from '@/lib/content-parser'
+import PullToRefresh from 'react-simple-pull-to-refresh'
+import { isTouchDevice } from '@/lib/utils'
+import { RefreshButton } from '../RefreshButton'
 
 const debug = (...args: any[]) => console.debug('[DMConversations]', ...args)
 
@@ -48,32 +51,44 @@ export function ConversationListPanel({
   const { messenger, conversations, ready, unsupportedReason } = useMessenger()
   const [filter, setFilter] = useState('')
   const [messageMeta, setMessageMeta] = useState<Record<string, ConversationMessageMeta>>({})
+  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const topRef = useRef<HTMLDivElement | null>(null)
+
+  const loadMessageMeta = useCallback(async () => {
+    if (!messenger) return null
+    debug('messageMeta fetch start', { conversations: conversations.length })
+    const entries = await Promise.all(
+      conversations.map(async (c) => {
+        const msgs = await messenger.getConversationMessages(c.id)
+        const last = msgs.length ? msgs[msgs.length - 1] : null
+        const first = msgs[0] || null
+        const unread = msgs.filter((m) => !m.read && m.sender.pubkey !== myPubkey).length
+        return [c.id, { last, first, unread }] as const
+      })
+    )
+    return Object.fromEntries(entries)
+  }, [conversations, messenger, myPubkey])
 
   useEffect(() => {
-    if (!messenger) return
     let cancelled = false
     ;(async () => {
-      debug('messageMeta fetch start', { conversations: conversations.length })
-      const entries = await Promise.all(
-        conversations.map(async (c) => {
-          const msgs = await messenger.getConversationMessages(c.id)
-          const last = msgs.length ? msgs[msgs.length - 1] : null
-          const first = msgs[0] || null
-          const unread = msgs.filter(
-            (m) => !m.read && m.sender.pubkey !== myPubkey
-          ).length
-          return [c.id, { last, first, unread }] as const
-        })
-      )
-      if (!cancelled) {
-        setMessageMeta(Object.fromEntries(entries))
-        debug('messageMeta updated', { conversations: conversations.length })
-      }
+      const meta = await loadMessageMeta()
+      if (cancelled || !meta) return
+      setMessageMeta(meta)
+      debug('messageMeta updated', { conversations: conversations.length })
     })()
     return () => {
       cancelled = true
     }
-  }, [conversations, messenger, myPubkey])
+  }, [loadMessageMeta, conversations.length])
+
+  const refresh = useCallback(async () => {
+    if (!messenger) return
+    topRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
+    await messenger.syncRecent()
+    const meta = await loadMessageMeta()
+    if (meta) setMessageMeta(meta)
+  }, [loadMessageMeta, messenger])
 
   const filtered = useMemo(() => {
     return conversations.filter((c) => {
@@ -88,6 +103,23 @@ export function ConversationListPanel({
     [filtered]
   )
 
+  const listContent = (
+    <div className="h-full overflow-y-auto bg-background">
+      {sorted.map((c) => (
+        <ConversationListItem
+          key={c.id}
+          meta={c}
+          messageMeta={messageMeta[c.id]}
+          myPubkey={myPubkey}
+          onOpenConversation={onOpenConversation}
+        />
+      ))}
+      {sorted.length === 0 && (
+        <div className="text-sm text-muted-foreground px-4 py-3">No conversations yet.</div>
+      )}
+    </div>
+  )
+
   if (unsupportedReason) {
     return <div className="p-4 text-sm text-muted-foreground">{unsupportedReason}</div>
   }
@@ -98,7 +130,7 @@ export function ConversationListPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky flex items-center top-12 bg-background z-30 px-4 py-2 w-full border-b">
+      <div className="sticky flex items-center justify-between top-12 bg-background z-30 px-4 py-2 w-full border-b gap-3">
         <div
           tabIndex={0}
           className="relative flex w-full items-center rounded-md border border-input px-3 py-1 text-base transition-colors md:text-sm [&:has(:focus-visible)]:ring-ring [&:has(:focus-visible)]:ring-1 [&:has(:focus-visible)]:outline-none bg-surface-background shadow-inner h-full border-none"
@@ -114,21 +146,25 @@ export function ConversationListPanel({
             className="flex-1 h-9 size-full shadow-none border-none bg-transparent focus:outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
         </div>
+        {!supportTouch && <RefreshButton onClick={() => refresh()} />}
       </div>
-      <div className="flex-1 overflow-y-auto bg-background">
-        {sorted.map((c) => (
-          <ConversationListItem
-            key={c.id}
-            meta={c}
-            messageMeta={messageMeta[c.id]}
-            myPubkey={myPubkey}
-            onOpenConversation={onOpenConversation}
-          />
-        ))}
-        {sorted.length === 0 && (
-          <div className="text-sm text-muted-foreground px-4 py-3">No conversations yet.</div>
-        )}
-      </div>
+      <div ref={topRef} className="scroll-mt-[calc(6rem+1px)]" />
+      {supportTouch ? (
+        <div className="flex-1 min-h-0">
+          <PullToRefresh
+            onRefresh={async () => {
+              await refresh()
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            }}
+            pullingContent=""
+            className="h-full"
+          >
+            {listContent}
+          </PullToRefresh>
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0">{listContent}</div>
+      )}
     </div>
   )
 }
