@@ -78,6 +78,8 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   const prevLength = useRef(0)
   const anchorRetry = useRef<number | null>(null)
   const localCountRef = useRef(0)
+  const lastLiveAt = useRef<number | null>(null)
+  const pollTimeout = useRef<number | null>(null)
 
   const conversation = useMemo(
     () => conversations.find((c) => c.id === conversationId) || null,
@@ -86,6 +88,7 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
 
   useEffect(() => {
     if (!messenger || !conversationId) return
+    lastLiveAt.current = null
     let cancelled = false
     const load = async () => {
       debug('fetch messages (init)', { conversationId })
@@ -116,20 +119,46 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         const prevLast = prev.at(-1)?.id
         const nextLast = msgs.at(-1)?.id
         if (prev.length === msgs.length && prevLast === nextLast) return prev
+        const latest = msgs.at(-1)
+        const latestLagMs = latest ? Date.now() - latest.timestamp * 1000 : null
         debug('periodic sync update', {
           conversationId,
           prev: prev.length,
           next: msgs.length,
           prevLast,
-          nextLast
+          nextLast,
+          latestLagMs
         })
         return msgs
       })
     }
-    const id = window.setInterval(sync, 5000)
+    const FAST_POLL_MS = 1000
+    const SLOW_POLL_MS = 5000
+    const LIVE_RECENT_WINDOW = 15000
+
+    const schedule = (delay: number) => {
+      if (pollTimeout.current) window.clearTimeout(pollTimeout.current)
+      pollTimeout.current = window.setTimeout(syncWithBackoff, delay)
+    }
+
+    const syncWithBackoff = async () => {
+      const startedAt = Date.now()
+      try {
+        await sync()
+      } catch (err) {
+        debug('periodic sync error', err)
+      }
+      if (cancelled) return
+      const sinceLive = lastLiveAt.current ? startedAt - lastLiveAt.current : Number.POSITIVE_INFINITY
+      const nextDelay = sinceLive > LIVE_RECENT_WINDOW ? FAST_POLL_MS : SLOW_POLL_MS
+      debug('periodic sync schedule', { conversationId, nextDelay, sinceLive })
+      schedule(nextDelay)
+    }
+
+    schedule(FAST_POLL_MS)
     return () => {
       cancelled = true
-      window.clearInterval(id)
+      if (pollTimeout.current) window.clearTimeout(pollTimeout.current)
     }
   }, [messenger, conversationId])
 
@@ -142,11 +171,14 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     debug('live listener attach', { conversationId })
     const off = messenger.on((event) => {
       if (event.type === 'message' && event.message.conversationId === conversationId) {
+        lastLiveAt.current = Date.now()
+        const latencyMs = Date.now() - event.message.timestamp * 1000
         debug('live event message', {
           id: event.message.id,
           ts: event.message.timestamp,
           read: event.message.read,
-          localCount: localCountRef.current
+          localCount: localCountRef.current,
+          latencyMs
         })
         setLocalMessages((prev) => mergeMessagesById(prev, event.message))
       }

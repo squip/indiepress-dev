@@ -321,9 +321,13 @@ export class MultiPartyMessenger {
       list.push(message)
       list.sort((a, b) => a.timestamp - b.timestamp)
       this.messages.set(message.conversationId, list)
-      await this.storage.saveMessage(message)
-      await this.ensureConversationMeta(message)
       this.emit({ type: 'message', message })
+      try {
+        await this.storage.saveMessage(message)
+      } catch (err) {
+        debug('persistMessage storage error', err)
+      }
+      await this.ensureConversationMeta(message)
       debug('persistMessage new', {
         conversationId: message.conversationId,
         id: message.id,

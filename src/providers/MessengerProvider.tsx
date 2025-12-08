@@ -129,7 +129,7 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        mp = new MultiPartyMessenger(ndk, { storage })
+        mp = new MultiPartyMessenger(ndk, { storage, explicitRelayUrls: relayUrls })
         await mp.start()
         debug('messenger started')
         ready.current = true
