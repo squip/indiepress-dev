@@ -65,6 +65,8 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
     return meta.participants.map((p) => nameMap[p] || p).join(', ')
   }, [meta?.participants, nameMap])
 
+  const [useDocumentScroll, setUseDocumentScroll] = useState(false)
+
   useEffect(() => {
     if (!meta || !messenger) return
     let cancelled = false
@@ -125,8 +127,10 @@ const ConversationPage = forwardRef(({ index }: { index?: number }, ref) => {
         </div>
       }
       displayScrollToTopButton={false}
+      skipInitialScrollToTop
+      onScrollContextChange={setUseDocumentScroll}
     >
-      <DMThread conversationId={conversationId} myPubkey={pubkey} />
+      <DMThread conversationId={conversationId} myPubkey={pubkey} useDocumentScroll={useDocumentScroll} />
       <MembersDialog
         open={showMembers}
         onOpenChange={setShowMembers}

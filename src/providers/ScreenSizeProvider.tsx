@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 type TScreenSizeContext = {
   isSmallScreen: boolean
@@ -16,14 +16,33 @@ export const useScreenSize = () => {
 }
 
 export function ScreenSizeProvider({ children }: { children: React.ReactNode }) {
-  const isSmallScreen = useMemo(() => window.innerWidth <= 768, [])
-  const isLargeScreen = useMemo(() => window.innerWidth >= 1280, [])
+  const [dims, setDims] = useState(() => ({
+    isSmallScreen: typeof window !== 'undefined' ? window.innerWidth <= 768 : false,
+    isLargeScreen: typeof window !== 'undefined' ? window.innerWidth >= 1280 : false
+  }))
+
+  useEffect(() => {
+    const mqSmall = window.matchMedia('(max-width: 768px)')
+    const mqLarge = window.matchMedia('(min-width: 1280px)')
+    const update = () =>
+      setDims({
+        isSmallScreen: mqSmall.matches,
+        isLargeScreen: mqLarge.matches
+      })
+    update()
+    mqSmall.addEventListener('change', update)
+    mqLarge.addEventListener('change', update)
+    return () => {
+      mqSmall.removeEventListener('change', update)
+      mqLarge.removeEventListener('change', update)
+    }
+  }, [])
 
   return (
     <ScreenSizeContext.Provider
       value={{
-        isSmallScreen,
-        isLargeScreen
+        isSmallScreen: dims.isSmallScreen,
+        isLargeScreen: dims.isLargeScreen
       }}
     >
       {children}

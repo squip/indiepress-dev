@@ -19,7 +19,9 @@ const SecondaryPageLayout = forwardRef(
       hideBackButton = false,
       hideTitlebarBottomBorder = false,
       displayScrollToTopButton = false,
-      titlebar
+      titlebar,
+      onScrollContextChange,
+      skipInitialScrollToTop = false
     }: {
       children?: React.ReactNode
       index?: number
@@ -29,6 +31,8 @@ const SecondaryPageLayout = forwardRef(
       hideTitlebarBottomBorder?: boolean
       displayScrollToTopButton?: boolean
       titlebar?: React.ReactNode
+      onScrollContextChange?: (useDocumentScroll: boolean) => void
+      skipInitialScrollToTop?: boolean
     },
     ref
   ) => {
@@ -52,11 +56,15 @@ const SecondaryPageLayout = forwardRef(
     )
 
     useEffect(() => {
-      if (enableSingleColumnLayout) {
+      onScrollContextChange?.(enableSingleColumnLayout)
+    }, [enableSingleColumnLayout, onScrollContextChange])
+
+    useEffect(() => {
+      if (enableSingleColumnLayout && !skipInitialScrollToTop) {
         setTimeout(() => window.scrollTo({ top: 0 }), 10)
         return
       }
-    }, [])
+    }, [enableSingleColumnLayout, skipInitialScrollToTop])
 
     if (enableSingleColumnLayout) {
       return (

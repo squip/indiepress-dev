@@ -59,7 +59,15 @@ function mergeMessagesById(existing: DMMessage[], incoming: DMMessage | DMMessag
   return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp)
 }
 
-export function DMThread({ conversationId, myPubkey }: { conversationId: string; myPubkey: string | null }) {
+export function DMThread({
+  conversationId,
+  myPubkey,
+  useDocumentScroll = false
+}: {
+  conversationId: string
+  myPubkey: string | null
+  useDocumentScroll?: boolean
+}) {
   const { messenger, conversations, ready, unsupportedReason, drainBufferedMessages } = useMessenger()
   const { isSmallScreen } = useScreenSize()
   const [draft, setDraft] = useState('')
@@ -220,11 +228,15 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         ? localMessages[firstUnreadIdx]
         : localMessages.at(-1)
     if (!targetMessage) return
-    const list = listRef.current
-    if (!list) {
-      debug('anchor attempt skipped - no list element', { conversationId })
+    const { el: scrollEl, useDocument } = getScrollContext()
+    if (!scrollEl) {
+      debug('anchor attempt skipped - no scroll element', { conversationId })
       return
     }
+    const scrollTop = useDocument
+      ? window.scrollY || document.documentElement.scrollTop
+      : scrollEl.scrollTop
+    const clientHeight = useDocument ? window.innerHeight : scrollEl.clientHeight
     debug('anchor attempt', {
       conversationId,
       unreadCount,
@@ -232,9 +244,13 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       targetId: targetMessage.id,
       messages: localMessages.length,
       attempt,
-      scrollTop: list.scrollTop,
-      scrollHeight: list.scrollHeight,
-      clientHeight: list.clientHeight
+      scrollTop,
+      scrollHeight: scrollEl.scrollHeight,
+      clientHeight,
+      useDocument,
+      scrollTag: (scrollEl as HTMLElement | null)?.tagName,
+      scrollId: (scrollEl as HTMLElement | null)?.id,
+      useDocumentScrollProp: useDocumentScroll
     })
     const scrolled =
       unreadCount > 0 && unreadCount > 10
@@ -242,20 +258,26 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
         : scrollToBottom(false)
     const verify = () => {
       anchorRetry.current = null
-      const listEl = listRef.current
+      const { el: listEl, useDocument: verifyUseDocument } = getScrollContext()
       const targetVisible =
         unreadCount > 0 && unreadCount > 10
           ? isMessageVisible(targetMessage.id)
-          : isNearBottom(listEl)
+          : isNearBottom(listEl, verifyUseDocument ? window.innerHeight : undefined, verifyUseDocument)
       debug('anchor verification', {
         conversationId,
         targetId: targetMessage.id,
         scrolled,
         targetVisible,
-        scrollTop: listEl?.scrollTop,
+        scrollTop: verifyUseDocument
+          ? window.scrollY || document.documentElement.scrollTop
+          : listEl?.scrollTop,
         scrollHeight: listEl?.scrollHeight,
-        clientHeight: listEl?.clientHeight,
-        attempt
+        clientHeight: verifyUseDocument ? window.innerHeight : listEl?.clientHeight,
+        attempt,
+        useDocument: verifyUseDocument,
+        scrollTag: (listEl as HTMLElement | null)?.tagName,
+        scrollId: (listEl as HTMLElement | null)?.id,
+        useDocumentScrollProp: useDocumentScroll
       })
       if (targetVisible) {
         if (scrolled && unreadCount > 0 && unreadCount <= 10) {
@@ -275,7 +297,14 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   useLayoutEffect(() => {
     attemptAnchor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localMessages, firstUnreadIdx, anchored, unreadCount, messenger, conversationId, conversation?.lastReadAt])
+  }, [localMessages, firstUnreadIdx, anchored, unreadCount, messenger, conversationId, conversation?.lastReadAt, useDocumentScroll])
+
+  useEffect(() => {
+    if (!anchored) {
+      attemptAnchor()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useDocumentScroll])
 
   useEffect(() => {
     return () => {
@@ -285,13 +314,16 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   }, [])
 
   useEffect(() => {
-    const el = getScrollElement()
+    const { el, useDocument } = getScrollContext()
     if (!el) return
     const handler = () => {
-      const scrollEl = getScrollElement() as HTMLDivElement | null
-      const isNear = scrollEl
-        ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 120
-        : false
+      const ctx = getScrollContext()
+      const isNear = isNearBottom(
+        ctx.el,
+        ctx.useDocument ? window.innerHeight : undefined,
+        ctx.useDocument,
+        120
+      )
       setNearBottom(isNear)
       setShowScrollBottom(unreadCount > 0 && !isNear)
       if (isNear && messenger && unreadCount > 0) {
@@ -300,9 +332,14 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
       }
     }
     handler()
-    const target = getScrollElement()
-    target?.addEventListener('scroll', handler)
-    return () => target?.removeEventListener('scroll', handler)
+    const primaryTarget = useDocument ? window : el
+    primaryTarget?.addEventListener('scroll', handler, { passive: true } as any)
+    const secondaryTarget = !useDocument && isSmallScreen ? window : null
+    secondaryTarget?.addEventListener('scroll', handler, { passive: true } as any)
+    return () => {
+      primaryTarget?.removeEventListener('scroll', handler)
+      secondaryTarget?.removeEventListener('scroll', handler)
+    }
   }, [messenger, conversationId, unreadCount])
 
   useEffect(() => {
@@ -312,8 +349,8 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   useEffect(() => {
     // If we were anchored or already near bottom, keep snapping when new messages arrive
     if (!localMessages.length) return
-    const scrollEl = getScrollElement()
-    const wasNearBottom = isNearBottom(scrollEl)
+    const { el: scrollEl, useDocument } = getScrollContext()
+    const wasNearBottom = isNearBottom(scrollEl, useDocument ? window.innerHeight : undefined, useDocument)
     if (anchored || wasNearBottom) {
       scrollToBottom(false)
     }
@@ -378,20 +415,42 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
     }
   }
 
-  const getScrollElement = (): HTMLElement | null => {
+  type ScrollContext = { el: HTMLElement | null; useDocument: boolean }
+
+  const getScrollContext = (): ScrollContext => {
+    if (useDocumentScroll && typeof document !== 'undefined') {
+      return {
+        el: (document.scrollingElement as HTMLElement | null) || document.documentElement,
+        useDocument: true
+      }
+    }
     const list = listRef.current
-    if (!list) return (typeof document !== 'undefined' ? document.scrollingElement as HTMLElement | null : null)
-    const viewport = list.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null
-    return viewport || list || (typeof document !== 'undefined' ? document.scrollingElement as HTMLElement | null : null)
+    const viewport = list?.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null
+    const candidate = (viewport || list || null) as HTMLElement | null
+    if (candidate) {
+      const scrollable = candidate.scrollHeight > candidate.clientHeight + 4
+      if (scrollable) return { el: candidate, useDocument: false }
+    }
+    if (typeof document !== 'undefined') {
+      return {
+        el: (document.scrollingElement as HTMLElement | null) || document.documentElement,
+        useDocument: true
+      }
+    }
+    return { el: null, useDocument: false }
   }
 
   const scrollToMessage = (id: string, smooth = true) => {
     const el = messageRefs.current.get(id)
-    const list = getScrollElement()
+    const { el: list, useDocument } = getScrollContext()
     if (el && list) {
-      const top = el.offsetTop - 24
-      debug('scrollToMessage', { id, top, smooth })
-      if ((list as any).scrollTo) {
+      const top = useDocument
+        ? el.getBoundingClientRect().top + (window.scrollY || document.documentElement.scrollTop) - 24
+        : el.offsetTop - 24
+      debug('scrollToMessage', { id, top, smooth, useDocument })
+      if (useDocument) {
+        window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+      } else if ((list as any).scrollTo) {
         ;(list as any).scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
       } else {
         window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
@@ -404,32 +463,54 @@ export function DMThread({ conversationId, myPubkey }: { conversationId: string;
   }
 
   const scrollToBottom = (smooth = true) => {
-    const list = getScrollElement()
+    const { el: list, useDocument } = getScrollContext()
     if (!list) {
       debug('scrollToBottom missing list')
       return false
     }
-    debug('scrollToBottom', { scrollHeight: list.scrollHeight, smooth })
-    if ((list as any).scrollTo) {
-      ;(list as any).scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    const top = list.scrollHeight
+    debug('scrollToBottom', { scrollHeight: list.scrollHeight, smooth, useDocument })
+    if (useDocument) {
+      window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+    } else if ((list as any).scrollTo) {
+      ;(list as any).scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
     } else {
-      window.scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+      window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
     }
-    list.scrollTop = list.scrollHeight
+    if (!useDocument) {
+      list.scrollTop = list.scrollHeight
+    }
     messenger?.markConversationRead(conversationId)
     return true
   }
 
-  const isNearBottom = (list?: HTMLElement | null) => {
+  const isNearBottom = (
+    list?: HTMLElement | null,
+    viewportHeight?: number,
+    useDocumentFlag = false,
+    threshold = 80
+  ) => {
     if (!list) return false
+    if (useDocumentFlag) {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop || 0
+      const clientHeight = viewportHeight ?? window.innerHeight
+      const distance = list.scrollHeight - scrollTop - clientHeight
+      return distance < threshold
+    }
     const distance = list.scrollHeight - list.scrollTop - list.clientHeight
-    return distance < 80
+    return distance < threshold
   }
 
   const isMessageVisible = (id: string) => {
     const el = messageRefs.current.get(id)
-    const list = getScrollElement()
+    const { el: list, useDocument } = getScrollContext()
     if (!el || !list) return false
+    if (useDocument) {
+      const rect = el.getBoundingClientRect()
+      const visible = rect.bottom <= window.innerHeight && rect.top >= -24
+      debug('isMessageVisible', { id, visible, rectTop: rect.top, rectBottom: rect.bottom, useDocument })
+      return visible
+    }
     const top = el.offsetTop
     const bottom = top + el.offsetHeight
     const viewTop = list.scrollTop
