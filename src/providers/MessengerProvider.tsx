@@ -7,6 +7,7 @@ import { MemoryStorage } from '@/lib/messaging/storage'
 import { CacheStorage } from '@/lib/messaging/cache-storage'
 import NDK, { NDKNip07Signer } from '@nostr-dev-kit/ndk'
 import * as nip49 from '@nostr/tools/nip49'
+import Dexie from 'dexie'
 
 const PASSWORD_PROMPT = 'Enter the password to decrypt your ncryptsec for messaging'
 const debug = (...args: any[]) => console.debug('[MessengerProvider]', ...args)
@@ -106,6 +107,17 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
           return storage
         }
 
+        const ensureModuleSchema = async () => {
+          const db = new Dexie(`${primaryDbName}_modules`)
+          db.version(3).stores({
+            moduleMetadata: '&namespace',
+            nip17_messages: '&id, conversationId, timestamp, sender',
+            nip17_conversations: '&id, lastMessageAt'
+          })
+          await db.open()
+          db.close()
+        }
+
         let storage: CacheStorage | MemoryStorage
         try {
           storage = await buildStorage(primaryDbName)
@@ -113,14 +125,21 @@ export function MessengerProvider({ children }: { children: React.ReactNode }) {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           if (msg.includes('Collection messages not found')) {
-            console.warn('Cache module missing; trying fresh DB name', fallbackDbName)
+            console.warn('Cache module missing; repairing module schema and retrying primary', msg)
             try {
-              storage = await buildStorage(fallbackDbName)
-              debug('storage selected', 'CacheStorage', fallbackDbName)
-            } catch (err2) {
-              console.warn('Cache fallback failed; using MemoryStorage', err2)
-              storage = new MemoryStorage()
-              debug('storage selected', 'MemoryStorage')
+              await ensureModuleSchema()
+              storage = await buildStorage(primaryDbName)
+              debug('storage selected', 'CacheStorage', primaryDbName, '(after repair)')
+            } catch (errReset) {
+              console.warn('Cache module repair failed; trying fresh DB name', fallbackDbName, errReset)
+              try {
+                storage = await buildStorage(fallbackDbName)
+                debug('storage selected', 'CacheStorage', fallbackDbName)
+              } catch (err2) {
+                console.warn('Cache fallback failed; using MemoryStorage', err2)
+                storage = new MemoryStorage()
+                debug('storage selected', 'MemoryStorage')
+              }
             }
           } else {
             console.warn('Cache adapter unavailable; using MemoryStorage', err)
