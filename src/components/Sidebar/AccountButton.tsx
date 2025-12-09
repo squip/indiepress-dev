@@ -4,8 +4,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { toSettings, toWallet } from '@/lib/link'
@@ -14,7 +12,7 @@ import { cn } from '@/lib/utils'
 import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
-import { LogIn, LogOut, Plus, Settings, UserRound, Wallet } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, LogIn, LogOut, Plus, Settings, UserRound, Wallet } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import LoginDialog from '../LoginDialog'
@@ -42,11 +40,13 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
   const { enableSingleColumnLayout } = useUserPreferences()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false)
   if (!pubkey) return null
 
   const defaultAvatar = useMemo(() => generateImageByPubkey(pubkey), [pubkey])
   const avatar = profile?.metadata?.picture ?? defaultAvatar
-  const username = profile?.username || formatPubkey(pubkey)
+  const username =
+    profile?.metadata?.display_name || profile?.metadata?.name || profile?.username || formatPubkey(pubkey)
 
   return (
     <DropdownMenu>
@@ -86,56 +86,82 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
           <Settings />
           {t('Settings')}
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => push(toWallet())}>
           <Wallet />
           {t('Wallet')}
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t('Switch account')}</DropdownMenuLabel>
-        {accounts.map((act) => (
-          <DropdownMenuItem
-            className={act.pubkey === pubkey ? 'cursor-default focus:bg-background' : ''}
-            key={`${act.pubkey}:${act.signerType}`}
-            onClick={() => {
-              if (act.pubkey !== pubkey) {
-                switchAccount(act)
-              }
-            }}
-          >
-            <div className="flex gap-2 items-center flex-1">
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={act.pubkey ? generateImageByPubkey(act.pubkey) : undefined} />
-                <AvatarFallback>
-                  <img src={generateImageByPubkey(act.pubkey)} />
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 w-0">
-                <SimpleUsername
-                  userId={act.pubkey}
-                  className="font-medium truncate"
-                  skeletonClassName="h-3"
-                />
-                <SignerTypeBadge signerType={act.signerType} />
-              </div>
-            </div>
-            <div
-              className={cn(
-                'border border-muted-foreground rounded-full size-3.5',
-                act.pubkey === pubkey && 'size-4 border-4 border-primary'
-              )}
-            />
-          </DropdownMenuItem>
-        ))}
         <DropdownMenuItem
-          onClick={() => setLoginDialogOpen(true)}
-          className="border border-dashed m-2 focus:border-muted-foreground focus:bg-background"
+          onClick={(e) => {
+            e.preventDefault()
+            setShowAccountSwitcher((prev) => !prev)
+          }}
         >
-          <div className="flex gap-2 items-center justify-center w-full py-2">
-            <Plus />
-            {t('Add an Account')}
-          </div>
+          <ArrowDownUp />
+          <div className="flex-1">{t('Switch account')}</div>
+          <ChevronDown
+            className={cn('transition-transform', showAccountSwitcher ? 'rotate-180' : '')}
+          />
         </DropdownMenuItem>
+        {showAccountSwitcher && (
+          <div className="px-1 pb-2 space-y-1">
+            {accounts.map((act) => {
+              const isCurrent = act.pubkey === pubkey
+              const avatarUrl = isCurrent
+                ? avatar
+                : act.pubkey
+                ? generateImageByPubkey(act.pubkey)
+                : undefined
+              return (
+                <DropdownMenuItem
+                  key={`${act.pubkey}:${act.signerType}`}
+                  className={cn('flex items-center gap-2', isCurrent && 'cursor-default focus:bg-background')}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (!isCurrent) {
+                      switchAccount(act)
+                    }
+                  }}
+                >
+                  <div className="flex gap-2 items-center flex-1">
+                    <Avatar className="w-8 h-8">
+                      <AvatarImage src={avatarUrl} />
+                      <AvatarFallback>
+                        <img src={generateImageByPubkey(act.pubkey)} />
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 w-0">
+                      <SimpleUsername
+                        userId={act.pubkey}
+                        className="font-medium truncate"
+                        skeletonClassName="h-3"
+                      />
+                      <SignerTypeBadge signerType={act.signerType} />
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      'border border-muted-foreground rounded-full size-3.5',
+                      isCurrent && 'size-4 border-4 border-primary'
+                    )}
+                  />
+                </DropdownMenuItem>
+              )
+            })}
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.preventDefault()
+                setShowAccountSwitcher(false)
+                setLoginDialogOpen(true)
+              }}
+              className="border border-dashed focus:border-muted-foreground focus:bg-background"
+            >
+              <div className="flex gap-2 items-center justify-center w-full py-2">
+                <Plus />
+                {t('Add an Account')}
+              </div>
+            </DropdownMenuItem>
+          </div>
+        )}
         <DropdownMenuItem
           className="text-destructive focus:text-destructive"
           onClick={() => setLogoutDialogOpen(true)}
