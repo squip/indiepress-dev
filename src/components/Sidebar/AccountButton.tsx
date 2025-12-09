@@ -1,3 +1,4 @@
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -7,17 +8,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { toWallet } from '@/lib/link'
+import { toSettings, toWallet } from '@/lib/link'
+import { formatPubkey, generateImageByPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
-import { useSecondaryPage } from '@/PageManager'
+import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { LogIn, LogOut, Plus, Wallet } from 'lucide-react'
-import { useState } from 'react'
+import { useUserPreferences } from '@/providers/UserPreferencesProvider'
+import { LogIn, LogOut, Plus, Settings, UserRound, Wallet } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import LoginDialog from '../LoginDialog'
 import LogoutDialog from '../LogoutDialog'
 import SignerTypeBadge from '../SignerTypeBadge'
-import { SimpleUserAvatar } from '../UserAvatar'
 import { SimpleUsername } from '../Username'
 import SidebarItem from './SidebarItem'
 
@@ -33,12 +35,18 @@ export default function AccountButton({ collapse }: { collapse: boolean }) {
 
 function ProfileButton({ collapse }: { collapse: boolean }) {
   const { t } = useTranslation()
-  const { account, accounts, switchAccount } = useNostr()
+  const { account, accounts, switchAccount, profile } = useNostr()
   const pubkey = account?.pubkey
+  const { navigate, current, display } = usePrimaryPage()
   const { push } = useSecondaryPage()
+  const { enableSingleColumnLayout } = useUserPreferences()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   if (!pubkey) return null
+
+  const defaultAvatar = useMemo(() => generateImageByPubkey(pubkey), [pubkey])
+  const avatar = profile?.metadata?.picture ?? defaultAvatar
+  const username = profile?.username || formatPubkey(pubkey)
 
   return (
     <DropdownMenu>
@@ -51,14 +59,34 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
           )}
         >
           <div className="flex gap-2 items-center flex-1 w-0">
-            <SimpleUserAvatar size="medium" userId={pubkey} />
-            {!collapse && (
-              <SimpleUsername className="truncate font-semibold text-lg" userId={pubkey} />
-            )}
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={avatar} />
+              <AvatarFallback>
+                <img src={defaultAvatar} />
+              </AvatarFallback>
+            </Avatar>
+            {!collapse && <div className="truncate font-semibold text-lg">{username}</div>}
           </div>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" className="w-72">
+        <DropdownMenuItem
+          onClick={() => navigate('profile')}
+          className={cn(display && current === 'profile' ? 'font-semibold' : '')}
+        >
+          <UserRound />
+          {t('Profile')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() =>
+            enableSingleColumnLayout ? navigate('settings') : push(toSettings())
+          }
+          className={cn(display && current === 'settings' ? 'font-semibold' : '')}
+        >
+          <Settings />
+          {t('Settings')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => push(toWallet())}>
           <Wallet />
           {t('Wallet')}
@@ -76,7 +104,12 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
             }}
           >
             <div className="flex gap-2 items-center flex-1">
-              <SimpleUserAvatar userId={act.pubkey} />
+              <Avatar className="w-8 h-8">
+                <AvatarImage src={act.pubkey ? generateImageByPubkey(act.pubkey) : undefined} />
+                <AvatarFallback>
+                  <img src={generateImageByPubkey(act.pubkey)} />
+                </AvatarFallback>
+              </Avatar>
               <div className="flex-1 w-0">
                 <SimpleUsername
                   userId={act.pubkey}

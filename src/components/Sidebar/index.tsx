@@ -12,11 +12,9 @@ import HomeButton from './HomeButton'
 import ConversationsButton from './ConversationsButton'
 import NotificationsButton from './NotificationButton'
 import PostButton from './PostButton'
-import ProfileButton from './ProfileButton'
 import ListsButton from './ListsButton'
 import ReadsButton from './ReadsButton'
 import SearchButton from './SearchButton'
-import SettingsButton from './SettingsButton'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
@@ -50,8 +48,6 @@ export default function PrimaryPageSidebar() {
         {pubkey && <BookmarkButton collapse={sidebarCollapse} />}
         <SearchButton collapse={sidebarCollapse} />
         <RelaysButton collapse={sidebarCollapse} />
-        <ProfileButton collapse={sidebarCollapse} />
-        <SettingsButton collapse={sidebarCollapse} />
         <PostButton collapse={sidebarCollapse} />
       </div>
       <div className="space-y-4">
