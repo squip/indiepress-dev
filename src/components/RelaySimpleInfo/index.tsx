@@ -1,5 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { getRelayDisplayName } from '@/lib/relay'
 import { TRelayInfo } from '@/types'
 import { HTMLProps } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,28 +12,32 @@ export default function RelaySimpleInfo({
   relayInfo,
   users,
   className,
+  compact = false,
   ...props
 }: HTMLProps<HTMLDivElement> & {
   relayInfo?: TRelayInfo
   users?: string[]
+  compact?: boolean
 }) {
   const { t } = useTranslation()
+  const displayName = getRelayDisplayName(relayInfo)
+  const showShortUrl = relayInfo?.name || relayInfo?.url.includes('lang.relays.land/')
 
   return (
-    <div className={cn('space-y-1', className)} {...props}>
+    <div className={cn(compact ? 'space-y-0' : 'space-y-1', className)} {...props}>
       <div className="flex items-start justify-between gap-2 w-full">
         <div className="flex flex-1 w-0 items-center gap-2">
-          <RelayIcon url={relayInfo?.url} className="h-9 w-9" />
+          <RelayIcon url={relayInfo?.url} className={compact ? 'h-7 w-7' : 'h-9 w-9'} />
           <div className="flex-1 w-0">
-            <div className="truncate font-semibold">{relayInfo?.name || relayInfo?.shortUrl}</div>
-            {relayInfo?.name && (
+            <div className={cn('truncate font-semibold', compact && 'text-sm')}>{displayName}</div>
+            {showShortUrl && (
               <div className="text-xs text-muted-foreground truncate">{relayInfo?.shortUrl}</div>
             )}
           </div>
         </div>
         {relayInfo && <SaveRelayDropdownMenu itemUrls={[relayInfo.url]} />}
       </div>
-      {!!relayInfo?.description && <div className="line-clamp-3">{relayInfo.description}</div>}
+      {!compact && !!relayInfo?.description && <div className="line-clamp-3">{relayInfo.description}</div>}
       {!!users?.length && (
         <div className="flex items-center gap-2">
           <div className="text-muted-foreground">{t('Favorited by')} </div>
