@@ -10,10 +10,11 @@ import { SimpleUsername } from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { toBookmarks, toProfile, toRelaySettings, toSettings, toWallet } from '@/lib/link'
 import { cn } from '@/lib/utils'
-import { useSecondaryPage } from '@/PageManager'
+import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import {
   ArrowDownUp,
+  BookOpen,
   Bookmark,
   ChevronRight,
   LogOut,
@@ -28,6 +29,7 @@ import { useTranslation } from 'react-i18next'
 const MePage = forwardRef((_, ref) => {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
+  const { navigate } = usePrimaryPage()
   const { pubkey } = useNostr()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
@@ -75,6 +77,9 @@ const MePage = forwardRef((_, ref) => {
         </Item>
         <Item onClick={() => push(toRelaySettings())}>
           <Server /> {t('Relays')}
+        </Item>
+        <Item onClick={() => navigate('reads')}>
+          <BookOpen /> {t('Reads')}
         </Item>
         <Item onClick={() => push(toBookmarks())}>
           <Bookmark /> {t('Bookmarks')}

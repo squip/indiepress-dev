@@ -1,6 +1,7 @@
 import { match } from 'path-to-regexp'
 import { isValidElement } from 'react'
 import AppearanceSettingsPage from './pages/secondary/AppearanceSettingsPage'
+import ArticlePage from './pages/secondary/ArticlePage'
 import BookmarkPage from './pages/secondary/BookmarkPage'
 import FollowingListPage from './pages/secondary/FollowingListPage'
 import GeneralSettingsPage from './pages/secondary/GeneralSettingsPage'
@@ -25,6 +26,7 @@ import ConversationPage from './pages/secondary/ConversationPage'
 const ROUTES = [
   { path: '/notes', element: <NoteListPage /> },
   { path: '/notes/:id', element: <NotePage /> },
+  { path: '/articles/:id', element: <ArticlePage /> },
   { path: '/users', element: <ProfileListPage /> },
   { path: '/users/:id', element: <ProfilePage /> },
   { path: '/users/:id/following', element: <FollowingListPage /> },
