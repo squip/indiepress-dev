@@ -95,6 +95,10 @@ export const toMuteList = () => '/mutes'
 export const toRizful = () => '/rizful'
 export const toBookmarks = () => '/bookmarks'
 export const toArticle = (naddr: string) => `/articles/${naddr}`
+export const toListsIndex = () => '/lists'
+export const toList = (id: string) => `/lists/${id}`
+export const toCreateList = () => '/lists/create'
+export const toEditList = (id: string) => `/lists/${id}/edit`
 
 export const toChachiChat = (relay: string, d: string) => {
   return `https://chachi.chat/${relay.replace(/^wss?:\/\//, '').replace(/\/$/, '')}/${d}`

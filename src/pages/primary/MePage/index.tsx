@@ -14,9 +14,10 @@ import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import {
   ArrowDownUp,
-  BookOpen,
   Bookmark,
+  BookOpen,
   ChevronRight,
+  List,
   LogOut,
   Server,
   Settings,
@@ -80,6 +81,9 @@ const MePage = forwardRef((_, ref) => {
         </Item>
         <Item onClick={() => navigate('reads')}>
           <BookOpen /> {t('Reads')}
+        </Item>
+        <Item onClick={() => navigate('lists')}>
+          <List /> {t('Lists')}
         </Item>
         <Item onClick={() => push(toBookmarks())}>
           <Bookmark /> {t('Bookmarks')}

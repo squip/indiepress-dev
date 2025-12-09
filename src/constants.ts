@@ -53,6 +53,7 @@ export const StorageKey = {
   PRIMARY_COLOR: 'primaryColor',
   ENABLE_SINGLE_COLUMN_LAYOUT: 'enableSingleColumnLayout',
   SHOW_LINK_PREVIEWS: 'showLinkPreviews',
+  FAVORITE_LISTS: 'favoriteLists',
   HIDE_UNTRUSTED_EVENTS: 'hideUntrustedEvents' // deprecated
 }
 
@@ -84,7 +85,8 @@ export const ExtendedKind = {
   FAVORITE_RELAYS: 10012,
   BLOSSOM_SERVER_LIST: 10063,
   RELAY_REVIEW: 31987,
-  GROUP_METADATA: 39000
+  GROUP_METADATA: 39000,
+  STARTER_PACK: 39089
 }
 
 export const SUPPORTED_KINDS = [
@@ -99,7 +101,8 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.VOICE_COMMENT,
   kinds.Highlights,
   kinds.LongFormArticle,
-  ExtendedKind.RELAY_REVIEW
+  ExtendedKind.RELAY_REVIEW,
+  ExtendedKind.STARTER_PACK
 ]
 
 export const URL_REGEX =

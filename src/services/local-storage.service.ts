@@ -57,6 +57,7 @@ class LocalStorageService {
   private primaryColor: TPrimaryColor = 'DEFAULT'
   private enableSingleColumnLayout: boolean = false
   private linkPreviewMode: TLinkPreviewMode = LINK_PREVIEW_MODE.ENABLED
+  private favoriteListsMap: Record<string, string[]> = {}
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -189,6 +190,16 @@ class LocalStorageService {
       Object.values(MEDIA_AUTO_LOAD_POLICY).includes(mediaAutoLoadPolicy as TMediaAutoLoadPolicy)
     ) {
       this.mediaAutoLoadPolicy = mediaAutoLoadPolicy as TMediaAutoLoadPolicy
+    }
+
+    const favoriteListsMapStr = window.localStorage.getItem(StorageKey.FAVORITE_LISTS)
+    if (favoriteListsMapStr) {
+      try {
+        const parsed = JSON.parse(favoriteListsMapStr)
+        this.favoriteListsMap = Array.isArray(parsed) ? { _global: parsed } : parsed
+      } catch {
+        this.favoriteListsMap = {}
+      }
     }
 
     const groupedNotesSettingsStr = window.localStorage.getItem(StorageKey.GROUPED_NOTES_SETTINGS)
@@ -548,6 +559,33 @@ class LocalStorageService {
   setLinkPreviewMode(mode: TLinkPreviewMode) {
     this.linkPreviewMode = mode
     window.localStorage.setItem(StorageKey.SHOW_LINK_PREVIEWS, mode)
+  }
+
+  getFavoriteLists(pubkey?: string | null) {
+    const key = pubkey || '_global'
+    return this.favoriteListsMap[key] || []
+  }
+
+  addFavoriteList(listKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteListsMap[key] || []
+    if (!currentFavorites.includes(listKey)) {
+      this.favoriteListsMap[key] = [...currentFavorites, listKey]
+      window.localStorage.setItem(StorageKey.FAVORITE_LISTS, JSON.stringify(this.favoriteListsMap))
+    }
+  }
+
+  removeFavoriteList(listKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteListsMap[key] || []
+    this.favoriteListsMap[key] = currentFavorites.filter((k) => k !== listKey)
+    window.localStorage.setItem(StorageKey.FAVORITE_LISTS, JSON.stringify(this.favoriteListsMap))
+  }
+
+  isFavoriteList(listKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteListsMap[key] || []
+    return currentFavorites.includes(listKey)
   }
 }
 

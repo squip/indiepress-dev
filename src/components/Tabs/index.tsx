@@ -17,6 +17,9 @@ export type TTabDefinition = {
     | 'reactions'
     | 'you'
     | 'all'
+    | 'discover'
+    | 'favorites'
+    | 'my'
   label: string
 }
 
@@ -26,7 +29,9 @@ export default function Tabs({
   onTabChange,
   threshold = 800,
   options = null,
-  hideTabs = false
+  hideTabs = false,
+  topOffset = '3rem',
+  reserveOptionsSpace = false
 }: {
   tabs: TTabDefinition[]
   value: string
@@ -34,6 +39,8 @@ export default function Tabs({
   threshold?: number
   options?: ReactNode
   hideTabs?: boolean
+  topOffset?: string
+  reserveOptionsSpace?: boolean
 }) {
   const { t } = useTranslation()
   const { deepBrowsing, lastScrollTop } = useDeepBrowsing()
@@ -100,14 +107,17 @@ export default function Tabs({
     <div
       ref={containerRef}
       className={cn(
-        'sticky flex justify-between top-12 bg-background z-30 px-1 w-full transition-transform border-b',
+        'sticky flex justify-between bg-background z-30 px-1 w-full transition-transform border-b',
         deepBrowsing && lastScrollTop > threshold ? '-translate-y-[calc(100%+12rem)]' : '',
         hideTabs && 'justify-end' // Right-align options when tabs are hidden
       )}
+      style={{ top: topOffset }}
     >
       {!hideTabs && (
         <ScrollArea className="flex-1 w-0">
-          <div className="flex w-fit relative">
+          <div
+            className={cn('flex w-fit relative', reserveOptionsSpace && options ? 'pr-16' : '')}
+          >
             {tabs.map((tab, index) => (
               <div
                 key={tab.value}

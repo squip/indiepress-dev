@@ -12,6 +12,7 @@ import { FollowListProvider } from '@/providers/FollowListProvider'
 import { GroupedNotesProvider } from '@/providers/GroupedNotesProvider'
 import { KindFilterProvider } from '@/providers/KindFilterProvider'
 import { LinkPreviewHoverProvider } from '@/providers/LinkPreviewHoverProvider'
+import { ListsProvider } from '@/providers/ListsProvider'
 import { MediaUploadServiceProvider } from '@/providers/MediaUploadServiceProvider'
 import { MuteListProvider } from '@/providers/MuteListProvider'
 import { NostrProvider } from '@/providers/NostrProvider'
@@ -43,25 +44,27 @@ export default function App(): JSX.Element {
                         <PinBuryProvider>
                           <MuteListProvider>
                             <UserTrustProvider>
-                            <BookmarksProvider>
-                              <PinListProvider>
-                                <FeedProvider>
-                                  <ReplyProvider>
-                                    <MediaUploadServiceProvider>
-                                      <KindFilterProvider>
-                                        <GroupedNotesProvider>
-                                          <MessengerProvider>
-                                            <PageManager />
-                                          </MessengerProvider>
-                                          <Toaster />
-                                          <LinkPreviewHoverUI />
-                                        </GroupedNotesProvider>
-                                      </KindFilterProvider>
-                                    </MediaUploadServiceProvider>
-                                  </ReplyProvider>
-                                </FeedProvider>
-                              </PinListProvider>
-                            </BookmarksProvider>
+                            <ListsProvider>
+                              <BookmarksProvider>
+                                <PinListProvider>
+                                  <FeedProvider>
+                                    <ReplyProvider>
+                                      <MediaUploadServiceProvider>
+                                        <KindFilterProvider>
+                                          <GroupedNotesProvider>
+                                            <MessengerProvider>
+                                              <PageManager />
+                                            </MessengerProvider>
+                                            <Toaster />
+                                            <LinkPreviewHoverUI />
+                                          </GroupedNotesProvider>
+                                        </KindFilterProvider>
+                                      </MediaUploadServiceProvider>
+                                    </ReplyProvider>
+                                  </FeedProvider>
+                                </PinListProvider>
+                              </BookmarksProvider>
+                            </ListsProvider>
                             </UserTrustProvider>
                           </MuteListProvider>
                         </PinBuryProvider>

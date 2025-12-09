@@ -6,7 +6,9 @@ import { loadFollowsList } from '@nostr/gadgets/lists'
 
 type TFollowListContext = {
   followList: string[]
+  followings: string[]
   follow: (pubkey: string) => Promise<void>
+  followMultiple: (pubkeys: string[]) => Promise<void>
   unfollow: (pubkey: string) => Promise<void>
 }
 
@@ -30,13 +32,40 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
     const follows = await loadFollowsList(accountPubkey)
     if (!follows.event) {
       const result = confirm(t('FollowListNotFoundConfirmation'))
-
-      if (!result) {
-        return
-      }
+      if (!result) return
     }
+
+    const existingTags = follows.event?.tags ?? []
+    const alreadyFollowing = existingTags.some((tag) => tag[0] === 'p' && tag[1] === pubkey)
+    if (alreadyFollowing) return
+
     const newFollowListDraftEvent = createFollowListDraftEvent(
-      (follows.event?.tags || []).concat([['p', pubkey]]),
+      [...existingTags, ['p', pubkey]],
+      follows.event?.content || ''
+    )
+    const newFollowListEvent = await publish(newFollowListDraftEvent)
+    await updateFollowListEvent(newFollowListEvent)
+  }
+
+  const followMultiple = async (pubkeys: string[]) => {
+    if (!accountPubkey || !pubkeys.length) return
+
+    const follows = await loadFollowsList(accountPubkey)
+    if (!follows.event) {
+      const result = confirm(t('FollowListNotFoundConfirmation'))
+      if (!result) return
+    }
+
+    const existingTags = follows.event?.tags ?? []
+    const existingPubkeys = new Set(
+      existingTags.filter((tag) => tag[0] === 'p').map((tag) => tag[1])
+    )
+    const newPubkeys = pubkeys.filter((pk) => !existingPubkeys.has(pk))
+    if (!newPubkeys.length) return
+
+    const newPTags = newPubkeys.map((pk) => ['p', pk] as [string, string])
+    const newFollowListDraftEvent = createFollowListDraftEvent(
+      [...existingTags, ...newPTags],
       follows.event?.content || ''
     )
     const newFollowListEvent = await publish(newFollowListDraftEvent)
@@ -61,7 +90,9 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
     <FollowListContext.Provider
       value={{
         followList,
+        followings: followList,
         follow,
+        followMultiple,
         unfollow
       }}
     >

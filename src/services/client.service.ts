@@ -938,6 +938,31 @@ class ClientService extends EventTarget {
     return muteList
   }
 
+  async fetchStarterPackEvents(pubkey: string) {
+    const events = await pool.querySync(
+      BIG_RELAY_URLS,
+      {
+        kinds: [ExtendedKind.STARTER_PACK],
+        authors: [pubkey]
+      },
+      { label: 'f-starter-pack' }
+    )
+    return events.sort((a, b) => b.created_at - a.created_at)
+  }
+
+  async fetchStarterPackEvent(pubkey: string, dTag: string) {
+    return await pool.get(
+      BIG_RELAY_URLS,
+      {
+        kinds: [ExtendedKind.STARTER_PACK],
+        authors: [pubkey],
+        '#d': [dTag],
+        limit: 1
+      },
+      { label: 'f-starter-pack-single' }
+    )
+  }
+
   /** =========== Following favorite relays =========== */
 
   async fetchFollowingFavoriteRelays(pubkey: string): Promise<[string, Set<string>][]> {

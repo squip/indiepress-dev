@@ -9,7 +9,10 @@
     "../x21",
     "../indiepress-client-dev-2",
     "../indiepress-client-dev-3",
-    "../indiepress-client-dev-4"
+    "../indiepress-client-dev-4",
+    "**/indiepress-client-dev-2/**",
+    "**/indiepress-client-dev-3/**",
+    "**/indiepress-client-dev-4/**"
   ],
   "compilerOptions": {
     "baseUrl": ".",

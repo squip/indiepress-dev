@@ -27,6 +27,7 @@ import MePage from './pages/primary/MePage'
 import NotificationListPage from './pages/primary/NotificationListPage'
 import ProfilePage from './pages/primary/ProfilePage'
 import ReadsPage from './pages/primary/ReadsPage'
+import ListsPage from './pages/primary/ListsPage'
 import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
 import SettingsPage from './pages/primary/SettingsPage'
@@ -62,6 +63,7 @@ const PRIMARY_PAGE_REF_MAP = {
   home: createRef<TPageRef>(),
   conversations: createRef<TPageRef>(),
   explore: createRef<TPageRef>(),
+  lists: createRef<TPageRef>(),
   reads: createRef<TPageRef>(),
   notifications: createRef<TPageRef>(),
   me: createRef<TPageRef>(),
@@ -76,6 +78,7 @@ const PRIMARY_PAGE_MAP = {
   home: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.home} />,
   conversations: <ConversationListPage ref={PRIMARY_PAGE_REF_MAP.conversations} />,
   explore: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.explore} />,
+  lists: <ListsPage ref={PRIMARY_PAGE_REF_MAP.lists} />,
   reads: <ReadsPage ref={PRIMARY_PAGE_REF_MAP.reads} />,
   notifications: <NotificationListPage ref={PRIMARY_PAGE_REF_MAP.notifications} />,
   me: <MePage ref={PRIMARY_PAGE_REF_MAP.me} />,
