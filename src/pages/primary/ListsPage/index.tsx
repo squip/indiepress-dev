@@ -41,7 +41,7 @@ const ListsPage = forwardRef((_, ref) => {
   const { pubkey, checkLogin } = useNostr()
   const { push } = useSecondaryPage()
   const { lists, isLoading: isLoadingMyLists, deleteList, fetchLists } = useLists()
-  const { followings = [], followMultiple } = useFollowList()
+  const { followings = [], followMultiple, unfollowMultiple } = useFollowList()
   const { isSmallScreen } = useScreenSize()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -264,10 +264,13 @@ const ListsPage = forwardRef((_, ref) => {
   }
 
   const handleFollowAllMembers = async (pubkeys: string[], listKey?: string) => {
+    const alreadyFollowingAll =
+      pubkeys.length === 0 ||
+      pubkeys.every((pk) => pk && (pk === pubkey || followings.includes(pk))) ||
+      (listKey ? followedLists.has(listKey) : false)
+
     const followAction = async () => {
-      const unique = pubkeys.filter(
-        (pk) => pk && pk !== pubkey && !followings.includes(pk)
-      )
+      const unique = pubkeys.filter((pk) => pk && pk !== pubkey && !followings.includes(pk))
       if (!unique.length) {
         toast.info(t('You are already following everyone in this list'))
         return
@@ -284,12 +287,35 @@ const ListsPage = forwardRef((_, ref) => {
       }
     }
 
+    const unfollowAction = async () => {
+      const targets = pubkeys.filter((pk) => pk && pk !== pubkey && followings.includes(pk))
+      if (!targets.length) return
+
+      try {
+        await unfollowMultiple(targets)
+        if (listKey) {
+          setFollowedLists((prev) => {
+            const next = new Set(prev)
+            next.delete(listKey)
+            return next
+          })
+        }
+        toast.success(t('Unfollowed all members'))
+      } catch (_error) {
+        toast.error(t('Unfollow failed'))
+      }
+    }
+
     if (!pubkey) {
-      await checkLogin(() => followAction())
+      await checkLogin(() => (alreadyFollowingAll ? unfollowAction() : followAction()))
       return
     }
 
-    await followAction()
+    if (alreadyFollowingAll) {
+      await unfollowAction()
+    } else {
+      await followAction()
+    }
   }
 
   const refreshSelectedList = async () => {
@@ -315,9 +341,7 @@ const ListsPage = forwardRef((_, ref) => {
     const memberCount = Array.isArray(list.pubkeys) ? list.pubkeys.length : 0
     const alreadyFollowedAll =
       memberCount === 0 ||
-      list.pubkeys.every(
-        (pk) => pk === pubkey || followings.includes(pk)
-      ) ||
+      list.pubkeys.every((pk) => pk === pubkey || followings.includes(pk)) ||
       followedLists.has(listKey)
 
     const descriptionNeedsTruncation = (list.description?.length || 0) > 140
@@ -328,7 +352,7 @@ const ListsPage = forwardRef((_, ref) => {
         className={`cursor-pointer transition-colors ${isSmallScreen ? 'rounded-none border-x-0 shadow-none' : 'hover:bg-accent/50'} overflow-hidden`}
         onClick={() => handleListClick(listKey)}
       >
-        <CardContent className="p-4">
+        <CardContent className={isSmallScreen ? 'py-4 px-0' : 'p-4'}>
           <div className="flex flex-col gap-3">
             <div className="flex items-start gap-3">
               {list.image && (
@@ -368,13 +392,15 @@ const ListsPage = forwardRef((_, ref) => {
                       e.stopPropagation()
                       handleFollowAllMembers(list.pubkeys || [], listKey)
                     }}
-                    title={alreadyFollowedAll ? t('Followed all members') : t('Follow all members')}
+                    title={
+                      alreadyFollowedAll ? t('Unfollow all members') : t('Follow all members')
+                    }
                     className="text-xs px-2 h-8 whitespace-nowrap"
                   >
                     {alreadyFollowedAll ? (
                       <>
                         <Check className="w-3 h-3 mr-1" />
-                        {t('Followed')}
+                        {t('Unfollow')}
                       </>
                     ) : (
                       t('Follow all')
@@ -488,13 +514,17 @@ const ListsPage = forwardRef((_, ref) => {
                   <Star className={`w-4 h-4 ${isFavorite ? 'fill-current text-yellow-500' : 'text-muted-foreground'}`} />
                 </Button>
                 <Button
-                  variant="outline"
+                  variant={followedLists.has(listKey) ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => handleFollowAllMembers(pubkeys, listKey)}
-                  title={t('Follow all members')}
+                  title={
+                    followedLists.has(listKey)
+                      ? t('Unfollow all members')
+                      : t('Follow all members')
+                  }
                 >
                   <UserPlus className="w-4 h-4 mr-2" />
-                  {t('Follow all members')}
+                  {followedLists.has(listKey) ? t('Unfollow') : t('Follow all members')}
                 </Button>
                 {selectedList.event.pubkey === pubkey && (
                   <Button
@@ -612,21 +642,26 @@ const ListsPage = forwardRef((_, ref) => {
   }
 
   const favoriteListObjects = useMemo(() => {
+    const listMap = new Map<string, TStarterPack>()
+    ;(lists || []).forEach((l) => listMap.set(`${l.event.pubkey}:${l.id}`, l))
+    ;(allPublicLists || []).forEach((l) => {
+      const key = `${l.event.pubkey}:${l.id}`
+      if (!listMap.has(key)) listMap.set(key, l)
+    })
+    if (selectedList) {
+      const key = `${selectedList.event.pubkey}:${selectedList.id}`
+      listMap.set(key, selectedList)
+    }
+
     const favListObjects: TStarterPack[] = []
     favoriteLists.forEach((key) => {
-      const [owner, id] = key.split(':')
-      const ownList = lists.find((l) => l.id === id && l.event.pubkey === owner)
-      if (ownList) {
-        favListObjects.push(ownList)
-        return
-      }
-      const publicList = allPublicLists.find((l) => l.id === id && l.event.pubkey === owner)
-      if (publicList) {
-        favListObjects.push(publicList)
+      const match = listMap.get(key)
+      if (match) {
+        favListObjects.push(match)
       }
     })
     return favListObjects
-  }, [favoriteLists, lists, allPublicLists])
+  }, [favoriteLists, lists, allPublicLists, selectedList])
 
   const myListObjects = useMemo(() => {
     if (!lists) return []
@@ -634,11 +669,8 @@ const ListsPage = forwardRef((_, ref) => {
   }, [lists, favoriteLists])
 
   const discoverListObjects = useMemo(() => {
-    return (allPublicLists || []).filter((list) => {
-      const listKey = `${list.event.pubkey}:${list.id}`
-      return !favoriteLists.includes(listKey)
-    })
-  }, [allPublicLists, favoriteLists])
+    return allPublicLists || []
+  }, [allPublicLists])
 
   const renderListGroup = (items: TStarterPack[]) => {
     if (!items.length) {
@@ -721,7 +753,7 @@ const ListsPage = forwardRef((_, ref) => {
   )
 
   const renderTabs = !selectedList && !(isSmallScreen && showSearchBar) && !searchQuery && (
-    <div className={isSmallScreen ? '-mx-4' : ''}>
+    <div className={isSmallScreen ? '' : 'px-4'}>
       <TabsBar
         tabs={tabs}
         value={activeSection}
@@ -734,7 +766,7 @@ const ListsPage = forwardRef((_, ref) => {
   )
 
   const renderSearchBar = !selectedList && (!isSmallScreen || showSearchBar) && (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${isSmallScreen && showSearchBar ? 'mt-4' : ''}`}>
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
@@ -760,34 +792,34 @@ const ListsPage = forwardRef((_, ref) => {
     content = renderSelectedList()
   } else {
     content = (
-      <div className="p-4 space-y-6">
-        {renderSearchBar}
+      <div className="space-y-4">
+        {!searchQuery && renderTabs}
+        <div className={isSmallScreen ? 'px-4 space-y-4' : 'p-4 space-y-6'}>
+          {renderSearchBar}
 
-        {searchQuery ? (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold">{t('Search Results')}</h2>
-            {isSearching && (
-              <div className="text-center text-muted-foreground py-8">{t('Searching...')}</div>
-            )}
-            {!isSearching && (!searchResults || searchResults.length === 0) && (
-              <div className="text-center text-muted-foreground py-8">
-                {t('No starter packs found')}
-              </div>
-            )}
-            {searchResults && searchResults.length > 0 && (
-              <div className={isSmallScreen ? 'divide-y border-y' : 'grid gap-3'}>
-                {sortLists(searchResults).map((list) =>
-                  renderListCard(list, list?.event?.pubkey === pubkey)
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            {renderTabs}
-            {sectionContent}
-          </>
-        )}
+          {searchQuery ? (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold">{t('Search Results')}</h2>
+              {isSearching && (
+                <div className="text-center text-muted-foreground py-8">{t('Searching...')}</div>
+              )}
+              {!isSearching && (!searchResults || searchResults.length === 0) && (
+                <div className="text-center text-muted-foreground py-8">
+                  {t('No starter packs found')}
+                </div>
+              )}
+              {searchResults && searchResults.length > 0 && (
+                <div className={isSmallScreen ? 'divide-y border-y' : 'grid gap-3'}>
+                  {sortLists(searchResults).map((list) =>
+                    renderListCard(list, list?.event?.pubkey === pubkey)
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            sectionContent
+          )}
+        </div>
       </div>
     )
   }

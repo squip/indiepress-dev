@@ -10,6 +10,7 @@ type TFollowListContext = {
   follow: (pubkey: string) => Promise<void>
   followMultiple: (pubkeys: string[]) => Promise<void>
   unfollow: (pubkey: string) => Promise<void>
+  unfollowMultiple: (pubkeys: string[]) => Promise<void>
 }
 
 const FollowListContext = createContext<TFollowListContext | undefined>(undefined)
@@ -86,6 +87,23 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
     await updateFollowListEvent(newFollowListEvent)
   }
 
+  const unfollowMultiple = async (pubkeys: string[]) => {
+    if (!accountPubkey || !pubkeys.length) return
+
+    const follows = await loadFollowsList(accountPubkey)
+    if (!follows.event) return
+
+    const removeSet = new Set(pubkeys)
+    const newFollowListDraftEvent = createFollowListDraftEvent(
+      follows.event.tags.filter(
+        ([tagName, tagValue]) => tagName !== 'p' || !removeSet.has(tagValue)
+      ),
+      follows.event.content
+    )
+    const newFollowListEvent = await publish(newFollowListDraftEvent)
+    await updateFollowListEvent(newFollowListEvent)
+  }
+
   return (
     <FollowListContext.Provider
       value={{
@@ -93,7 +111,8 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
         followings: followList,
         follow,
         followMultiple,
-        unfollow
+        unfollow,
+        unfollowMultiple
       }}
     >
       {children}
