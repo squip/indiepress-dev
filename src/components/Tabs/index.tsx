@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { useDeepBrowsing } from '@/providers/DeepBrowsingProvider'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ScrollArea, ScrollBar } from '../ui/scroll-area'
@@ -44,6 +45,7 @@ export default function Tabs({
 }) {
   const { t } = useTranslation()
   const { deepBrowsing, lastScrollTop } = useDeepBrowsing()
+  const { isSmallScreen } = useScreenSize()
   const tabRefs = useRef<(HTMLDivElement | null)[]>([])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [indicatorStyle, setIndicatorStyle] = useState({ width: 0, left: 0 })
@@ -107,7 +109,8 @@ export default function Tabs({
     <div
       ref={containerRef}
       className={cn(
-        'sticky flex justify-between bg-background z-30 px-1 w-full transition-transform border-b',
+        'sticky flex justify-between bg-background z-30 w-full transition-transform border-b',
+        isSmallScreen ? 'px-0' : 'px-1',
         deepBrowsing && lastScrollTop > threshold ? '-translate-y-[calc(100%+12rem)]' : '',
         hideTabs && 'justify-end' // Right-align options when tabs are hidden
       )}
@@ -123,7 +126,7 @@ export default function Tabs({
                 key={tab.value}
                 ref={(el) => (tabRefs.current[index] = el)}
                 className={cn(
-                  `w-fit text-center py-2 px-6 my-1 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg`,
+                  `w-fit text-center py-2 ${isSmallScreen ? 'px-4' : 'px-6'} my-1 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg`,
                   value === tab.value ? '' : 'text-muted-foreground'
                 )}
                 onClick={() => {

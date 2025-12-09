@@ -340,24 +340,24 @@ const ListsPage = forwardRef((_, ref) => {
               )}
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-lg line-clamp-2 mb-1">{list.title}</h3>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground flex-nowrap min-w-0">
-              <span>
-                {memberCount} {memberCount === 1 ? t('member') : t('members')}
-              </span>
-              {!isOwnList && (
-                <>
-                  <span className="text-muted-foreground">•</span>
-                  <div className="inline-flex items-center gap-1 min-w-0">
-                    <span>{t('By')}</span>
-                    <UserAvatar userId={list.event.pubkey} size="xSmall" className="inline-block" />
-                    <Username
-                      userId={list.event.pubkey}
-                      className="font-medium inline truncate max-w-[120px]"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground flex-nowrap min-w-0">
+                  <span className="whitespace-nowrap">
+                    {memberCount} {memberCount === 1 ? t('member') : t('members')}
+                  </span>
+                  {!isOwnList && (
+                    <>
+                      <span className="text-muted-foreground">•</span>
+                      <div className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
+                        <span>{t('By')}</span>
+                        <UserAvatar userId={list.event.pubkey} size="xSmall" className="inline-block" />
+                        <Username
+                          userId={list.event.pubkey}
+                          className="font-medium inline truncate max-w-[120px] min-w-0"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="flex gap-1 flex-shrink-0">
                 {!isOwnList && (
@@ -721,14 +721,16 @@ const ListsPage = forwardRef((_, ref) => {
   )
 
   const renderTabs = !selectedList && !(isSmallScreen && showSearchBar) && !searchQuery && (
-    <TabsBar
-      tabs={tabs}
-      value={activeSection}
-      onTabChange={(tab) => setActiveSection(tab as 'discover' | 'favorites' | 'my')}
-      options={isSmallScreen ? filterControl : null}
-      topOffset="0"
-      reserveOptionsSpace
-    />
+    <div className={isSmallScreen ? '-mx-4' : ''}>
+      <TabsBar
+        tabs={tabs}
+        value={activeSection}
+        onTabChange={(tab) => setActiveSection(tab as 'discover' | 'favorites' | 'my')}
+        options={isSmallScreen ? filterControl : null}
+        topOffset="0"
+        reserveOptionsSpace={!isSmallScreen}
+      />
+    </div>
   )
 
   const renderSearchBar = !selectedList && (!isSmallScreen || showSearchBar) && (

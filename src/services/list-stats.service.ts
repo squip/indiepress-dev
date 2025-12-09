@@ -5,7 +5,6 @@ import dayjs from 'dayjs'
 import { Event } from '@nostr/tools/wasm'
 import { Filter } from '@nostr/tools/filter'
 import * as kinds from '@nostr/tools/kinds'
-import { pool } from '@nostr/gadgets/global'
 
 export type TListStats = {
   zapPrSet: Set<string>
@@ -71,22 +70,16 @@ class ListStatsService {
     }
 
     const events: Event[] = []
-    await new Promise<void>((resolve) => {
-      const relays = authorRelayList.read.concat(BIG_RELAY_URLS).slice(0, 5)
-      const subc = pool.subscribeMap(
-        relays.flatMap((url) => filters.map((filter) => ({ url, filter }))),
-        {
-          label: 'list-stats',
-          onevent: (evt) => {
-            events.push(evt as Event)
-          },
-          oneose: () => {
-            resolve()
-            subc.close()
-          }
-        }
-      )
-    })
+    const relays = authorRelayList.read.concat(BIG_RELAY_URLS).slice(0, 5)
+
+    for (const filter of filters) {
+      try {
+        const fetched = await client.fetchEvents(relays, filter)
+        events.push(...(fetched as Event[]))
+      } catch (error) {
+        console.error('Failed to fetch list stats', error)
+      }
+    }
 
     this.updateListStatsByEvents(authorPubkey, dTag, events)
     this.listStatsMap.set(listKey, {
