@@ -17,7 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import postEditor from '@/services/post-editor.service'
 import { Event } from '@nostr/tools/wasm'
-import { Dispatch, useMemo, useState } from 'react'
+import { Dispatch, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import PostContent from './PostContent'
 import ArticleContent from './ArticleContent'
@@ -48,6 +48,13 @@ export default function PostEditor({
   const { t } = useTranslation()
   const canToggleTabs = !parentEvent
   const [tab, setTab] = useState<'post' | 'article'>(parentEvent ? 'post' : defaultTab)
+
+  // Replies/quotes should never switch into article mode
+  useEffect(() => {
+    if (parentEvent && tab !== 'post') {
+      setTab('post')
+    }
+  }, [parentEvent, tab])
 
   const content = useMemo(() => {
     if (parentEvent || tab === 'post') {
@@ -97,18 +104,18 @@ export default function PostEditor({
           <ScrollArea className="px-4 h-full max-h-screen">
             <div className="space-y-4 px-2 py-6">
               <SheetHeader>
-                <SheetTitle className="text-start">
-                  {canToggleTabs ? (
-                    <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
-                      <TabsList>
-                        <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
-                        <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-                  ) : (
+                {canToggleTabs ? (
+                  <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
+                    <TabsList>
+                      <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
+                      <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                ) : (
+                  <SheetTitle className="text-start">
                     <Title parentEvent={parentEvent} tab={tab} />
-                  )}
-                </SheetTitle>
+                  </SheetTitle>
+                )}
                 <SheetDescription className="hidden" />
               </SheetHeader>
               {content}
@@ -134,18 +141,20 @@ export default function PostEditor({
         <ScrollArea className="px-4 h-full max-h-screen">
           <div className="space-y-4 px-2 py-6">
             <DialogHeader>
-              <DialogTitle>
-                {canToggleTabs ? (
+              {canToggleTabs ? (
+                <DialogTitle>
                   <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
                     <TabsList>
                       <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
                       <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
                     </TabsList>
                   </Tabs>
-                ) : (
+                </DialogTitle>
+              ) : (
+                <DialogTitle>
                   <Title parentEvent={parentEvent} tab={tab} />
-                )}
-              </DialogTitle>
+                </DialogTitle>
+              )}
               <DialogDescription className="hidden" />
             </DialogHeader>
             {content}
