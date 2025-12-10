@@ -1,24 +1,115 @@
-import { useEffect } from 'react'
-import MdEditor from 'react-markdown-editor-lite'
-import 'react-markdown-editor-lite/lib/index.css'
+import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import Link from '@tiptap/extension-link'
+import ImageExtension from '@tiptap/extension-image'
+import Placeholder from '@tiptap/extension-placeholder'
+import { Markdown } from 'tiptap-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import { remarkNostrLinks, nostrSanitizeSchema } from '@/lib/markdown'
+import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
+import {
+  Bold,
+  Code,
+  CodeXml,
+  Image as ImageIcon,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  Menu,
+  Minus,
+  Quote,
+  Redo,
+  Type,
+  Underline as UnderlineIcon,
+  Undo
+} from 'lucide-react'
 
-export default function ArticleMarkdownEditor({
-  value,
-  onChange,
-  showPreview
-}: {
+type ArticleMarkdownEditorProps = {
   value: string
   onChange: (next: string) => void
   showPreview: boolean
-}) {
+}
+
+export default function ArticleMarkdownEditor({ value, onChange, showPreview }: ArticleMarkdownEditorProps) {
+  const lastMarkdown = useRef(value)
+
+  const getMarkdown = useCallback(
+    (editorInstance: ReturnType<typeof useEditor> | null) => {
+      if (!editorInstance) return ''
+      const storage = (editorInstance as any)?.storage?.markdown
+      if (storage?.getMarkdown) {
+        return storage.getMarkdown()
+      }
+      return editorInstance?.getText?.() ?? ''
+    },
+    []
+  )
+
+  const editor = useEditor({
+    content: value || '',
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4] }
+      }),
+      Underline,
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true
+      }),
+      ImageExtension.configure({
+        inline: false,
+        allowBase64: true,
+        HTMLAttributes: {
+          class: 'rounded-md my-3 max-w-full'
+        }
+      }),
+      Placeholder.configure({
+        placeholder: 'Start writing your article...',
+        includeChildren: true,
+        showOnlyCurrent: false
+      }),
+      Markdown.configure({
+        html: false,
+        transformCopiedText: true,
+        transformPastedText: true,
+        breaks: true
+      })
+    ],
+    editorProps: {
+      attributes: {
+        class: 'article-editor__content'
+      }
+    },
+    onUpdate: ({ editor }) => {
+      const markdown = getMarkdown(editor as any)
+      lastMarkdown.current = markdown
+      onChange(markdown)
+    }
+  })
+
   useEffect(() => {
-    // ensure the markdown editor picks up the latest value when toggling
-  }, [showPreview])
+    if (!editor) return
+    if (value === lastMarkdown.current) return
+    editor.commands.setContent(value || '')
+    lastMarkdown.current = value
+  }, [value, editor])
+
+  const previewContent = useMemo(() => {
+    if (showPreview && editor) {
+      return getMarkdown(editor as any)
+    }
+    return value || ''
+  }, [editor, getMarkdown, showPreview, value])
 
   if (showPreview) {
     return (
@@ -27,26 +118,246 @@ export default function ArticleMarkdownEditor({
           remarkPlugins={[remarkGfm, remarkNostrLinks]}
           rehypePlugins={[rehypeRaw, [rehypeSanitize, nostrSanitizeSchema]]}
         >
-          {value || ''}
+          {previewContent}
         </ReactMarkdown>
       </div>
     )
   }
 
+  if (!editor) return null
+
   return (
-    <MdEditor
-      value={value}
-      style={{ height: '420px' }}
-      onChange={({ text }) => onChange(text)}
-      renderHTML={(text) => (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkNostrLinks]}
-          rehypePlugins={[rehypeRaw, [rehypeSanitize, nostrSanitizeSchema]]}
+    <div className="article-editor space-y-2">
+      <div className="article-toolbar flex flex-wrap items-center gap-2">
+        <ToolbarGroup>
+          <ToolbarButton
+            icon={Undo}
+            label="Undo"
+            onClick={() => editor.chain().focus().undo().run()}
+            disabled={!editor.can().undo()}
+            isFirst
+          />
+          <ToolbarButton
+            icon={Redo}
+            label="Redo"
+            onClick={() => editor.chain().focus().redo().run()}
+            disabled={!editor.can().redo()}
+            isLast
+          />
+        </ToolbarGroup>
+        <ToolbarDivider />
+        <ToolbarGroup>
+          <HeadingMenu editor={editor} />
+          <ToolbarButton
+            icon={Bold}
+            label="Bold"
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            active={editor.isActive('bold')}
+          />
+          <ToolbarButton
+            icon={Italic}
+            label="Italic"
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            active={editor.isActive('italic')}
+          />
+          <ToolbarButton
+            icon={UnderlineIcon}
+            label="Underline"
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+            active={editor.isActive('underline')}
+          />
+          <ToolbarButton
+            icon={Code}
+            label="Inline code"
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            active={editor.isActive('code')}
+            isLast
+          />
+        </ToolbarGroup>
+        <ToolbarDivider />
+        <ToolbarGroup>
+          <ToolbarButton
+            icon={LinkIcon}
+            label="Insert link"
+            onClick={() => {
+              const previousUrl = editor.getAttributes('link').href as string | undefined
+              const url = window.prompt('Enter URL', previousUrl || 'https://')
+              if (url === null) return
+              if (url === '') {
+                editor.chain().focus().unsetLink().run()
+                return
+              }
+              editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+            }}
+            active={editor.isActive('link')}
+          />
+          <ToolbarButton
+            icon={ImageIcon}
+            label="Insert image"
+            onClick={() => {
+              const url = window.prompt('Image URL', 'https://')
+              if (!url) return
+              editor.chain().focus().setImage({ src: url }).run()
+            }}
+          />
+          <ToolbarButton
+            icon={Minus}
+            label="Horizontal rule"
+            onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            isLast
+          />
+        </ToolbarGroup>
+        <ToolbarDivider />
+        <ToolbarGroup>
+          <ToolbarButton
+            icon={List}
+            label="Bullet list"
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            active={editor.isActive('bulletList')}
+          />
+          <ToolbarButton
+            icon={ListOrdered}
+            label="Numbered list"
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            active={editor.isActive('orderedList')}
+          />
+          <ToolbarButton
+            icon={Quote}
+            label="Blockquote"
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            active={editor.isActive('blockquote')}
+          />
+          <ToolbarButton
+            icon={CodeXml}
+            label="Code block"
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            active={editor.isActive('codeBlock')}
+            isLast
+          />
+        </ToolbarGroup>
+        <ToolbarDivider />
+        <ToolbarGroup>
+          <MenuDropdown editor={editor} />
+        </ToolbarGroup>
+      </div>
+      <EditorContent editor={editor} className="article-prose tiptap" />
+    </div>
+  )
+}
+
+function HeadingMenu({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
+  const isHeadingActive = (level: number) => editor.isActive('heading', { level })
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ToolbarButton
+          icon={Type}
+          label="Style"
+          active={isHeadingActive(1) || isHeadingActive(2) || isHeadingActive(3) || isHeadingActive(4)}
+          isFirst
+          onClick={() => editor.chain().focus().run()}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-48">
+        <DropdownMenuItem onSelect={() => editor.chain().focus().setParagraph().run()}>
+          Paragraph
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
+          Heading 1
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+          Heading 2
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+          Heading 3
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}>
+          Heading 4
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function MenuDropdown({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ToolbarButton
+          icon={Menu}
+          label="Menu"
+          withText
+          isFirst
+          isLast
+          onClick={() => editor.chain().focus().run()}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-48">
+        <DropdownMenuItem onSelect={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
+          Clear formatting
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            editor.chain().focus().setParagraph().run()
+            editor.commands.setTextSelection(editor.state.doc.content.size)
+          }}
         >
-          {text}
-        </ReactMarkdown>
+          Reset to paragraph
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => editor.chain().focus().setHorizontalRule().run()}>
+          Insert divider
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ToolbarGroup({ children }: { children: ReactNode }) {
+  return <div className="flex items-center rounded-md border border-input overflow-hidden">{children}</div>
+}
+
+function ToolbarDivider() {
+  return <Separator orientation="vertical" className="h-8" />
+}
+
+function ToolbarButton({
+  icon: Icon,
+  label,
+  onClick,
+  active,
+  disabled,
+  isFirst,
+  isLast,
+  withText
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+  isFirst?: boolean
+  isLast?: boolean
+  withText?: boolean
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      disabled={disabled}
+      data-active={active ? 'true' : undefined}
+      className={cn(
+        'toolbar-button h-8 px-1.5 min-w-0 shadow-none border-r border-input rounded-none hover:bg-accent hover:text-accent-foreground',
+        isFirst && 'rounded-l-md',
+        isLast && 'rounded-r-md border-r-0'
       )}
-      view={{ html: false, md: true, menu: true }}
-    />
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+    >
+      <Icon className="h-4 w-4" />
+      {withText && <span className="ml-1 text-sm">{label}</span>}
+    </Button>
   )
 }
