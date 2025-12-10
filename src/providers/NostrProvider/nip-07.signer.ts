@@ -10,7 +10,7 @@ export class Nip07Signer implements ISigner {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (window.nostr) {
-        this.signer = window.nostr
+        this.signer = window.nostr as unknown as TNip07
         return
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -35,7 +35,20 @@ export class Nip07Signer implements ISigner {
     if (!this.signer) {
       throw new Error('Should call init() first')
     }
-    return await this.signer.signEvent(draftEvent)
+    const event: any = {
+      pubkey: draftEvent.pubkey,
+      kind: draftEvent.kind,
+      content: draftEvent.content,
+      tags: draftEvent.tags,
+      created_at: draftEvent.created_at
+    }
+    if (!event.pubkey) {
+      event.pubkey = await this.getPublicKey()
+    }
+    if (!event.created_at) {
+      event.created_at = Math.floor(Date.now() / 1000)
+    }
+    return (await this.signer.signEvent(event)) as any
   }
 
   async nip04Encrypt(pubkey: string, plainText: string) {

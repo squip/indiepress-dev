@@ -13,11 +13,14 @@ import {
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import postEditor from '@/services/post-editor.service'
 import { Event } from '@nostr/tools/wasm'
-import { Dispatch, useMemo } from 'react'
+import { Dispatch, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import PostContent from './PostContent'
+import ArticleContent from './ArticleContent'
 import Title from './Title'
 
 export default function PostEditor({
@@ -25,26 +28,57 @@ export default function PostEditor({
   parentEvent,
   open,
   setOpen,
-  openFrom
+  openFrom,
+  defaultTab = 'post',
+  articleOptions
 }: {
   defaultContent?: string
   parentEvent?: Event
   open: boolean
   setOpen: Dispatch<boolean>
   openFrom?: string[]
+  defaultTab?: 'post' | 'article'
+  articleOptions?: {
+    existingEvent?: Event
+    extraTags?: string[][]
+    onPublish?: (draftEvent: any, options: { isDraft: boolean; relayUrls: string[] }) => Promise<void>
+  }
 }) {
   const { isSmallScreen } = useScreenSize()
+  const { t } = useTranslation()
+  const canToggleTabs = !parentEvent
+  const [tab, setTab] = useState<'post' | 'article'>(parentEvent ? 'post' : defaultTab)
 
   const content = useMemo(() => {
+    if (parentEvent || tab === 'post') {
+      return (
+        <PostContent
+          defaultContent={defaultContent}
+          parentEvent={parentEvent}
+          close={() => setOpen(false)}
+          openFrom={openFrom}
+        />
+      )
+    }
     return (
-      <PostContent
-        defaultContent={defaultContent}
-        parentEvent={parentEvent}
+      <ArticleContent
         close={() => setOpen(false)}
         openFrom={openFrom}
+        existingEvent={articleOptions?.existingEvent}
+        extraTags={articleOptions?.extraTags}
+        onPublish={articleOptions?.onPublish}
       />
     )
-  }, [])
+  }, [
+    defaultContent,
+    parentEvent,
+    openFrom,
+    setOpen,
+    tab,
+    articleOptions?.existingEvent,
+    articleOptions?.extraTags,
+    articleOptions?.onPublish
+  ])
 
   if (isSmallScreen) {
     return (
@@ -64,7 +98,16 @@ export default function PostEditor({
             <div className="space-y-4 px-2 py-6">
               <SheetHeader>
                 <SheetTitle className="text-start">
-                  <Title parentEvent={parentEvent} />
+                  {canToggleTabs ? (
+                    <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
+                      <TabsList>
+                        <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
+                        <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  ) : (
+                    <Title parentEvent={parentEvent} tab={tab} />
+                  )}
                 </SheetTitle>
                 <SheetDescription className="hidden" />
               </SheetHeader>
@@ -79,7 +122,7 @@ export default function PostEditor({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="p-0 max-w-2xl"
+        className={`p-0 ${parentEvent || tab === 'post' ? 'max-w-2xl' : 'max-w-4xl'}`}
         withoutClose
         onEscapeKeyDown={(e) => {
           if (postEditor.isSuggestionPopupOpen) {
@@ -92,7 +135,16 @@ export default function PostEditor({
           <div className="space-y-4 px-2 py-6">
             <DialogHeader>
               <DialogTitle>
-                <Title parentEvent={parentEvent} />
+                {canToggleTabs ? (
+                  <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
+                    <TabsList>
+                      <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
+                      <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                ) : (
+                  <Title parentEvent={parentEvent} tab={tab} />
+                )}
               </DialogTitle>
               <DialogDescription className="hidden" />
             </DialogHeader>

@@ -46,7 +46,7 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
   const defaultAvatar = useMemo(() => generateImageByPubkey(pubkey), [pubkey])
   const avatar = profile?.metadata?.picture ?? defaultAvatar
   const username =
-    profile?.metadata?.display_name || profile?.metadata?.name || profile?.username || formatPubkey(pubkey)
+    profile?.metadata?.display_name || profile?.metadata?.name || formatPubkey(pubkey)
 
   return (
     <DropdownMenu>

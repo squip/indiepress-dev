@@ -43,7 +43,12 @@ class ListStatsService {
     const coordinate = `${ExtendedKind.STARTER_PACK}:${authorPubkey}:${dTag}`
     const filters: Filter[] = []
 
-    if (authorProfile?.lightningAddress) {
+    const lightningAddress =
+      authorProfile?.metadata?.lud16 ||
+      authorProfile?.metadata?.lud06 ||
+      (authorProfile as any)?.lightningAddress
+
+    if (lightningAddress) {
       filters.push({
         '#a': [coordinate],
         kinds: [kinds.Zap],

@@ -26,6 +26,7 @@ import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
 import { MessengerProvider } from '@/providers/MessengerProvider'
+import { NotepadProvider } from '@/providers/NotepadProvider'
 import { PageManager } from './PageManager'
 
 export default function App(): JSX.Element {
@@ -53,7 +54,9 @@ export default function App(): JSX.Element {
                                         <KindFilterProvider>
                                           <GroupedNotesProvider>
                                             <MessengerProvider>
-                                              <PageManager />
+                                              <NotepadProvider>
+                                                <PageManager />
+                                              </NotepadProvider>
                                             </MessengerProvider>
                                             <Toaster />
                                             <LinkPreviewHoverUI />

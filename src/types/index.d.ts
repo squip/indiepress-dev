@@ -74,11 +74,13 @@ export type TConfig = {
 export type TThemeSetting = 'light' | 'dark' | 'system' | 'pure-black'
 export type TTheme = 'light' | 'dark' | 'pure-black'
 
-export type TDraftEvent = Pick<Event, 'content' | 'created_at' | 'kind' | 'tags'>
+export type TDraftEvent = Pick<Event, 'content' | 'created_at' | 'kind' | 'tags'> & {
+  pubkey?: string
+}
 
 export type TNip07 = {
   getPublicKey: () => Promise<string>
-  signEvent: (draftEvent: TDraftEvent) => Promise<VerifiedEvent>
+  signEvent: (draftEvent: any) => Promise<VerifiedEvent | any>
   nip04?: {
     encrypt?: (pubkey: string, plainText: string) => Promise<string>
     decrypt?: (pubkey: string, cipherText: string) => Promise<string>
@@ -191,3 +193,21 @@ export type TMediaAutoLoadPolicy =
   (typeof MEDIA_AUTO_LOAD_POLICY)[keyof typeof MEDIA_AUTO_LOAD_POLICY]
 
 export type TLinkPreviewMode = (typeof LINK_PREVIEW_MODE)[keyof typeof LINK_PREVIEW_MODE]
+
+export type TLongFormDraftContent = {
+  title: string
+  content: string
+  summary?: string
+  image?: string
+  identifier?: string
+  hashtags?: string[]
+  publishedAt?: number
+  extraTags?: string[][]
+}
+
+export type TLongFormDraftOptions = {
+  isDraft?: boolean
+  addClientTag?: boolean
+  isNsfw?: boolean
+  existingEvent?: Event
+}

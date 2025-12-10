@@ -165,6 +165,103 @@ export async function createShortTextNoteDraftEvent(
   return setDraftEventCache(baseDraft)
 }
 
+export type TLongFormDraftContent = {
+  title: string
+  content: string
+  summary?: string
+  image?: string
+  identifier?: string
+  hashtags?: string[]
+  publishedAt?: number
+  extraTags?: string[][]
+}
+
+export type TLongFormDraftOptions = {
+  isDraft?: boolean
+  addClientTag?: boolean
+  isNsfw?: boolean
+  existingEvent?: Event
+}
+
+export function createLongFormDraftEvent(
+  input: TLongFormDraftContent,
+  options: TLongFormDraftOptions = {}
+): TDraftEvent {
+  const {
+    title,
+    content,
+    summary,
+    image,
+    identifier,
+    hashtags = [],
+    publishedAt,
+    extraTags = []
+  } = input
+  const { isDraft = false, addClientTag = false, isNsfw = false, existingEvent } = options
+  const { content: processedContent, emojiTags } = transformCustomEmojisInContent(content)
+
+  const identifierFromEvent = existingEvent?.tags.find(tagNameEquals('d'))?.[1]
+  const finalIdentifier = identifier?.trim() || identifierFromEvent || randomString(12)
+
+  const publishedAtFromEvent = existingEvent?.tags.find(tagNameEquals('published_at'))?.[1]
+  const finalPublishedAt =
+    publishedAt !== undefined
+      ? publishedAt
+      : publishedAtFromEvent
+        ? parseInt(publishedAtFromEvent)
+        : undefined
+
+  const derivedHashtags = extractHashtags(processedContent)
+  const hashtagSet = new Set(
+    [...hashtags, ...derivedHashtags].map((t) => t.trim().toLowerCase()).filter(Boolean)
+  )
+
+  const managedTagNames = new Set([
+    'd',
+    'title',
+    'summary',
+    'image',
+    'published_at',
+    't',
+    'emoji',
+    'client',
+    'content-warning'
+  ])
+  const preservedTags =
+    existingEvent?.tags.filter((tag) => !managedTagNames.has(tag[0])) ?? []
+
+  const tags: string[][] = []
+  tags.push(buildDTag(finalIdentifier))
+  tags.push(buildTitleTag(title))
+  if (summary) {
+    tags.push(['summary', summary])
+  }
+  if (image) {
+    tags.push(['image', image])
+  }
+  hashtagSet.forEach((t) => tags.push(buildTTag(t)))
+  if (!isDraft && finalPublishedAt) {
+    tags.push(['published_at', finalPublishedAt.toString()])
+  }
+  if (addClientTag) {
+    tags.push(buildClientTag())
+  }
+  if (isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  tags.push(...emojiTags)
+  tags.push(...extraTags)
+  tags.push(...preservedTags)
+
+  const baseDraft = {
+    kind: isDraft ? 30024 : kinds.LongFormArticle,
+    content: processedContent,
+    tags
+  }
+
+  return setDraftEventCache(baseDraft)
+}
+
 // https://github.com/nostr-protocol/nips/blob/master/51.md
 export function createRelaySetDraftEvent(relaySet: Omit<TRelaySet, 'aTag'>): TDraftEvent {
   return {

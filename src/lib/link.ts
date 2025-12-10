@@ -99,6 +99,7 @@ export const toListsIndex = () => '/lists'
 export const toList = (id: string) => `/lists/${id}`
 export const toCreateList = () => '/lists/create'
 export const toEditList = (id: string) => `/lists/${id}/edit`
+export const toNotepad = (id: string) => `/notepad/${id}`
 
 export const toChachiChat = (relay: string, d: string) => {
   return `https://chachi.chat/${relay.replace(/^wss?:\/\//, '').replace(/\/$/, '')}/${d}`

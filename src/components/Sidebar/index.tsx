@@ -15,6 +15,7 @@ import PostButton from './PostButton'
 import ListsButton from './ListsButton'
 import ReadsButton from './ReadsButton'
 import SearchButton from './SearchButton'
+import NotepadButton from './NotepadButton'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
@@ -45,6 +46,7 @@ export default function PrimaryPageSidebar() {
         <NotificationsButton collapse={sidebarCollapse} />
         <ReadsButton collapse={sidebarCollapse} />
         <ListsButton collapse={sidebarCollapse} />
+        <NotepadButton collapse={sidebarCollapse} />
         {pubkey && <BookmarkButton collapse={sidebarCollapse} />}
         <SearchButton collapse={sidebarCollapse} />
         <RelaysButton collapse={sidebarCollapse} />

@@ -223,6 +223,7 @@ const ListPage = forwardRef<HTMLDivElement, ListPageProps>(({ index, listId }, r
             <NoteList
               subRequests={[
                 {
+                  source: 'relays',
                   urls: BIG_RELAY_URLS,
                   filter: {
                     authors: displayList.pubkeys,

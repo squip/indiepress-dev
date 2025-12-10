@@ -19,6 +19,7 @@ import {
   ChevronRight,
   List,
   LogOut,
+  NotebookPen,
   Server,
   Settings,
   UserRound,
@@ -84,6 +85,9 @@ const MePage = forwardRef((_, ref) => {
         </Item>
         <Item onClick={() => navigate('lists')}>
           <List /> {t('Lists')}
+        </Item>
+        <Item onClick={() => navigate('notepad')}>
+          <NotebookPen /> {t('Notepad')}
         </Item>
         <Item onClick={() => push(toBookmarks())}>
           <Bookmark /> {t('Bookmarks')}

@@ -1,7 +1,13 @@
 import { Event } from '@nostr/tools/wasm'
 import { useTranslation } from 'react-i18next'
 
-export default function Title({ parentEvent }: { parentEvent?: Event }) {
+export default function Title({
+  parentEvent,
+  tab = 'post'
+}: {
+  parentEvent?: Event
+  tab?: 'post' | 'article'
+}) {
   const { t } = useTranslation()
 
   return parentEvent ? (
@@ -9,6 +15,6 @@ export default function Title({ parentEvent }: { parentEvent?: Event }) {
       <div className="shrink-0">{t('Reply to')}</div>
     </div>
   ) : (
-    t('New Note')
+    (tab === 'article' ? t('New Article') : t('New Post'))
   )
 }
