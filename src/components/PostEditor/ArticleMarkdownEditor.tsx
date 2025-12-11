@@ -35,7 +35,9 @@ import {
   Underline as UnderlineIcon,
   Undo,
   Smile,
-  Save
+  Save,
+  SquarePlus,
+  SquareX
 } from 'lucide-react'
 
 type ArticleMarkdownEditorProps = {
@@ -71,6 +73,7 @@ export default function ArticleMarkdownEditor({
   const [viewportHeight, setViewportHeight] = useState<number>(
     typeof window !== 'undefined' ? window.innerHeight : 0
   )
+  const [isFabOpen, setIsFabOpen] = useState(false)
 
   const isTouchSmallScreen = useMemo(() => {
     if (typeof window === 'undefined') return false
@@ -168,10 +171,10 @@ export default function ArticleMarkdownEditor({
   const floatingToolbarVisible = useMemo(() => {
     if (!isTouchSmallScreen) return false
     if (showPreview) return false
-    if (!hasFocus) return false
     const innerH = typeof window !== 'undefined' ? window.innerHeight : 0
-    return keyboardOffset > 40 || viewportHeight < innerH - 80
-  }, [isTouchSmallScreen, showPreview, hasFocus, keyboardOffset, viewportHeight])
+    const keyboardLikelyOpen = keyboardOffset > 40 || viewportHeight < innerH - 80
+    return isFabOpen || hasFocus || keyboardLikelyOpen
+  }, [isTouchSmallScreen, showPreview, hasFocus, keyboardOffset, viewportHeight, isFabOpen])
 
   const previewContent = useMemo(() => {
     if (showPreview && editor) {
@@ -343,10 +346,33 @@ export default function ArticleMarkdownEditor({
       )}
       {floatingToolbarVisible && (
         <div
-          className="fixed left-0 right-0 z-40 flex items-center gap-1 overflow-x-auto bg-background border-t border-border px-2 py-1 shadow-md"
+          className="fixed left-0 right-0 z-40 flex items-center justify-end px-2 py-1"
           style={{ bottom: Math.max(0, keyboardOffset + 8) }}
         >
-          <div className="flex items-center gap-1 min-w-max">{toolbarBody}</div>
+          <div className="relative inline-flex items-center gap-2">
+            <div
+              className={`flex items-center gap-1 overflow-x-auto bg-background border border-border px-2 py-1 rounded-md shadow-md min-w-max transition-all duration-200 ${
+                isFabOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2 pointer-events-none'
+              }`}
+            >
+              {toolbarBody}
+            </div>
+            <Button
+              size="icon"
+              variant="secondary"
+              className="shadow-md rounded-md"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onClick={() => {
+                setIsFabOpen((open: boolean) => !open)
+                editor?.commands.focus()
+              }}
+            >
+              {isFabOpen ? <SquareX className="h-4 w-4" /> : <SquarePlus className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       )}
       <EditorContent
@@ -425,11 +451,21 @@ const ToolbarButton = React.forwardRef<
         isFirst && 'rounded-l-md',
         isLast && 'rounded-r-md border-r-0'
       )}
+      onMouseDown={(e) => {
+        // Prevent blur/keyboard dismissal when tapping toolbar buttons on touch devices
+        e.preventDefault()
+        e.stopPropagation()
+      }}
       onClick={(e) => {
         e.stopPropagation()
         if (isTouchDevice() && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(50)
         }
+        // Keep editor focused so keyboard stays open
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(ref as any)?.current?.focus?.()
+        } catch {}
         onClick()
       }}
     >
