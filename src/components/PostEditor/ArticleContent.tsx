@@ -223,7 +223,7 @@ export default function ArticleContent({
 
   return (
     <div className="space-y-3 flex flex-col max-h-[calc(100vh-180px)] sm:max-h-none">
-      <div className="space-y-2 flex-1 min-h-0">
+      <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
         <Tabs
           value={showPreview ? 'preview' : 'edit'}
           onValueChange={(val) => setShowPreview(val === 'preview')}
@@ -262,6 +262,7 @@ export default function ArticleContent({
               `${prev} ${typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`}`.trim()
             )
           }}
+          onSaveDraft={() => publishDraft(true)}
         />
       </div>
       {uploadProgresses.length > 0 &&
@@ -297,7 +298,7 @@ export default function ArticleContent({
         parentEvent={existingEvent}
         openFrom={openFrom}
       />
-      <div className="flex flex-wrap items-center gap-2 justify-end">
+      <div className="flex flex-wrap items-center gap-2 justify-end max-sm:hidden">
         <Button
           variant="secondary"
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
@@ -308,17 +309,29 @@ export default function ArticleContent({
           {t('Cancel')}
         </Button>
         <Button
-          variant="outline"
-          disabled={!canPublish || savingDraft}
+          disabled={!canPublish || posting}
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation()
-            publishDraft(true)
+            publishDraft(false)
           }}
         >
-          {savingDraft && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
-          {t('Save Draft')}
+          {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
+          {t('Publish')}
+        </Button>
+      </div>
+      <div className="flex gap-2 items-center justify-around sm:hidden">
+        <Button
+          className="w-full"
+          variant="secondary"
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation()
+            close()
+          }}
+        >
+          {t('Cancel')}
         </Button>
         <Button
+          className="w-full"
           disabled={!canPublish || posting}
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation()

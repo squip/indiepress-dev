@@ -1,6 +1,6 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
-import { Pencil } from 'lucide-react'
+import { Pencil, NotebookPen } from 'lucide-react'
 import { forwardRef, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
@@ -110,7 +110,7 @@ function NotepadTitlebar({
   return (
     <div className="flex gap-2 items-center justify-between h-full pl-3 pr-2">
       <div className="flex items-center gap-2">
-        <Pencil />
+        <NotebookPen />
         <div className="text-lg font-semibold">{t('Notepad')}</div>
       </div>
       <div className="flex items-center gap-1">

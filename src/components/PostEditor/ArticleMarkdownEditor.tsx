@@ -34,7 +34,8 @@ import {
   Type,
   Underline as UnderlineIcon,
   Undo,
-  Smile
+  Smile,
+  Save
 } from 'lucide-react'
 
 type ArticleMarkdownEditorProps = {
@@ -48,6 +49,7 @@ type ArticleMarkdownEditorProps = {
   onUploadEnd?: (file: File) => void
   onUploadProgress?: (file: File, progress: number) => void
   onUploadSuccess?: ({ url, tags }: { url: string; tags: string[][] }) => void
+  onSaveDraft?: () => void
 }
 
 export default function ArticleMarkdownEditor({
@@ -60,7 +62,8 @@ export default function ArticleMarkdownEditor({
   onUploadStart,
   onUploadEnd,
   onUploadProgress,
-  onUploadSuccess
+  onUploadSuccess,
+  onSaveDraft
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
 
@@ -277,14 +280,20 @@ export default function ArticleMarkdownEditor({
         </ToolbarGroup>
         <ToolbarDivider />
         <ToolbarGroup>
-          {mentions && setMentions ? (
-            <Mentions content={value} mentions={mentions} setMentions={setMentions} />
-          ) : null}
+          <ToolbarButton icon={Save} label="Save Draft" onClick={() => onSaveDraft?.()} isFirst isLast />
         </ToolbarGroup>
+        {mentions && setMentions && showPreview && (
+          <>
+            <ToolbarDivider />
+            <ToolbarGroup>
+              <Mentions content={value} mentions={mentions} setMentions={setMentions} />
+            </ToolbarGroup>
+          </>
+        )}
       </div>
       <EditorContent
         editor={editor}
-        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto"
+        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[300px]"
       />
     </div>
   )
