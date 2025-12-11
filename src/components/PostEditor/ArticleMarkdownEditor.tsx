@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -66,6 +66,16 @@ export default function ArticleMarkdownEditor({
   onSaveDraft
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
+  const [hasFocus, setHasFocus] = useState(false)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState<number>(
+    typeof window !== 'undefined' ? window.innerHeight : 0
+  )
+
+  const isTouchSmallScreen = useMemo(() => {
+    if (typeof window === 'undefined') return false
+    return isTouchDevice() && window.innerWidth <= 768
+  }, [])
 
   const getMarkdown = useCallback(
     (editorInstance: ReturnType<typeof useEditor> | null) => {
@@ -119,6 +129,12 @@ export default function ArticleMarkdownEditor({
       const markdown = getMarkdown(editor as any)
       lastMarkdown.current = markdown
       onChange(markdown)
+    },
+    onFocus() {
+      setHasFocus(true)
+    },
+    onBlur() {
+      setHasFocus(false)
     }
   })
 
@@ -128,6 +144,34 @@ export default function ArticleMarkdownEditor({
     editor.commands.setContent(value || '')
     lastMarkdown.current = value
   }, [value, editor])
+
+  useEffect(() => {
+    if (!isTouchSmallScreen || typeof window === 'undefined' || typeof window.visualViewport === 'undefined') {
+      return
+    }
+    const vv = window.visualViewport
+    const update = () => {
+      const vpH = vv?.height ?? window.innerHeight
+      setViewportHeight(vpH)
+      const offset = Math.max(0, window.innerHeight - vpH - (vv?.offsetTop ?? 0))
+      setKeyboardOffset(offset)
+    }
+    update()
+    vv?.addEventListener('resize', update)
+    vv?.addEventListener('scroll', update)
+    return () => {
+      vv?.removeEventListener('resize', update)
+      vv?.removeEventListener('scroll', update)
+    }
+  }, [isTouchSmallScreen])
+
+  const floatingToolbarVisible = useMemo(() => {
+    if (!isTouchSmallScreen) return false
+    if (showPreview) return false
+    if (!hasFocus) return false
+    const innerH = typeof window !== 'undefined' ? window.innerHeight : 0
+    return keyboardOffset > 40 || viewportHeight < innerH - 80
+  }, [isTouchSmallScreen, showPreview, hasFocus, keyboardOffset, viewportHeight])
 
   const previewContent = useMemo(() => {
     if (showPreview && editor) {
@@ -151,149 +195,163 @@ export default function ArticleMarkdownEditor({
 
   if (!editor) return null
 
+  const toolbarBody = (
+    <>
+      <ToolbarGroup>
+        <ToolbarButton
+          icon={Undo}
+          label="Undo"
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!editor.can().undo()}
+          isFirst
+        />
+        <ToolbarButton
+          icon={Redo}
+          label="Redo"
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!editor.can().redo()}
+          isLast
+        />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
+        <HeadingMenu editor={editor} />
+        <ToolbarButton
+          icon={Bold}
+          label="Bold"
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          active={editor.isActive('bold')}
+        />
+        <ToolbarButton
+          icon={Italic}
+          label="Italic"
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          active={editor.isActive('italic')}
+        />
+        <ToolbarButton
+          icon={UnderlineIcon}
+          label="Underline"
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          active={editor.isActive('underline')}
+        />
+        <ToolbarButton
+          icon={Code}
+          label="Inline code"
+          onClick={() => editor.chain().focus().toggleCode().run()}
+          active={editor.isActive('code')}
+          isLast
+        />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
+        <ToolbarButton
+          icon={LinkIcon}
+          label="Insert link"
+          onClick={() => {
+            const previousUrl = editor.getAttributes('link').href as string | undefined
+            const url = window.prompt('Enter URL', previousUrl || 'https://')
+            if (url === null) return
+            if (url === '') {
+              editor.chain().focus().unsetLink().run()
+              return
+            }
+            editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+          }}
+          active={editor.isActive('link')}
+        />
+        <Uploader
+          onUploadStart={onUploadStart}
+          onUploadEnd={onUploadEnd}
+          onProgress={onUploadProgress}
+          onUploadSuccess={({ url, tags }) => {
+            onUploadSuccess?.({ url, tags })
+            editor.chain().focus().insertContent(`\n${url}\n`).run()
+          }}
+          accept="image/*,video/*,audio/*"
+        >
+          <ToolbarButton icon={ImageIcon} label="Upload media" onClick={() => {}} />
+        </Uploader>
+        {!isTouchDevice() && (
+          <EmojiPickerDialog
+            onEmojiClick={(emoji) => {
+              onEmojiSelect?.(emoji)
+              if (!emoji) return
+              editor
+                .chain()
+                .focus()
+                .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
+                .run()
+            }}
+          >
+            <ToolbarButton icon={Smile} label="Emoji" onClick={() => {}} />
+          </EmojiPickerDialog>
+        )}
+        <ToolbarButton
+          icon={Minus}
+          label="Horizontal rule"
+          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          isLast
+        />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
+        <ToolbarButton
+          icon={List}
+          label="Bullet list"
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          active={editor.isActive('bulletList')}
+        />
+        <ToolbarButton
+          icon={ListOrdered}
+          label="Numbered list"
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          active={editor.isActive('orderedList')}
+        />
+        <ToolbarButton
+          icon={Quote}
+          label="Blockquote"
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          active={editor.isActive('blockquote')}
+        />
+        <ToolbarButton
+          icon={CodeXml}
+          label="Code block"
+          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          active={editor.isActive('codeBlock')}
+          isLast
+        />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
+        <ToolbarButton icon={Save} label="Save Draft" onClick={() => onSaveDraft?.()} isFirst isLast />
+      </ToolbarGroup>
+      {mentions && setMentions && showPreview && (
+        <>
+          <ToolbarDivider />
+          <ToolbarGroup>
+            <Mentions content={value} mentions={mentions} setMentions={setMentions} />
+          </ToolbarGroup>
+        </>
+      )}
+    </>
+  )
+
   return (
     <div className="article-editor space-y-2">
-      <div className="article-toolbar flex flex-wrap items-center gap-2">
-        <ToolbarGroup>
-          <ToolbarButton
-            icon={Undo}
-            label="Undo"
-            onClick={() => editor.chain().focus().undo().run()}
-            disabled={!editor.can().undo()}
-            isFirst
-          />
-          <ToolbarButton
-            icon={Redo}
-            label="Redo"
-            onClick={() => editor.chain().focus().redo().run()}
-            disabled={!editor.can().redo()}
-            isLast
-          />
-        </ToolbarGroup>
-        <ToolbarDivider />
-        <ToolbarGroup>
-          <HeadingMenu editor={editor} />
-          <ToolbarButton
-            icon={Bold}
-            label="Bold"
-            onClick={() => editor.chain().focus().toggleBold().run()}
-            active={editor.isActive('bold')}
-          />
-          <ToolbarButton
-            icon={Italic}
-            label="Italic"
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-            active={editor.isActive('italic')}
-          />
-          <ToolbarButton
-            icon={UnderlineIcon}
-            label="Underline"
-            onClick={() => editor.chain().focus().toggleUnderline().run()}
-            active={editor.isActive('underline')}
-          />
-          <ToolbarButton
-            icon={Code}
-            label="Inline code"
-            onClick={() => editor.chain().focus().toggleCode().run()}
-            active={editor.isActive('code')}
-            isLast
-          />
-        </ToolbarGroup>
-        <ToolbarDivider />
-        <ToolbarGroup>
-          <ToolbarButton
-            icon={LinkIcon}
-            label="Insert link"
-            onClick={() => {
-              const previousUrl = editor.getAttributes('link').href as string | undefined
-              const url = window.prompt('Enter URL', previousUrl || 'https://')
-              if (url === null) return
-              if (url === '') {
-                editor.chain().focus().unsetLink().run()
-                return
-              }
-              editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-            }}
-            active={editor.isActive('link')}
-          />
-          <Uploader
-            onUploadStart={onUploadStart}
-            onUploadEnd={onUploadEnd}
-            onProgress={onUploadProgress}
-            onUploadSuccess={({ url, tags }) => {
-              onUploadSuccess?.({ url, tags })
-              editor.chain().focus().insertContent(`\n${url}\n`).run()
-            }}
-            accept="image/*,video/*,audio/*"
-          >
-            <ToolbarButton icon={ImageIcon} label="Upload media" onClick={() => {}} />
-          </Uploader>
-          {!isTouchDevice() && (
-            <EmojiPickerDialog
-              onEmojiClick={(emoji) => {
-                onEmojiSelect?.(emoji)
-                if (!emoji) return
-                editor
-                  .chain()
-                  .focus()
-                  .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
-                  .run()
-              }}
-            >
-              <ToolbarButton icon={Smile} label="Emoji" onClick={() => {}} />
-            </EmojiPickerDialog>
-          )}
-          <ToolbarButton
-            icon={Minus}
-            label="Horizontal rule"
-            onClick={() => editor.chain().focus().setHorizontalRule().run()}
-            isLast
-          />
-        </ToolbarGroup>
-        <ToolbarDivider />
-        <ToolbarGroup>
-          <ToolbarButton
-            icon={List}
-            label="Bullet list"
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-            active={editor.isActive('bulletList')}
-          />
-          <ToolbarButton
-            icon={ListOrdered}
-            label="Numbered list"
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}
-            active={editor.isActive('orderedList')}
-          />
-          <ToolbarButton
-            icon={Quote}
-            label="Blockquote"
-            onClick={() => editor.chain().focus().toggleBlockquote().run()}
-            active={editor.isActive('blockquote')}
-          />
-          <ToolbarButton
-            icon={CodeXml}
-            label="Code block"
-            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-            active={editor.isActive('codeBlock')}
-            isLast
-          />
-        </ToolbarGroup>
-        <ToolbarDivider />
-        <ToolbarGroup>
-          <ToolbarButton icon={Save} label="Save Draft" onClick={() => onSaveDraft?.()} isFirst isLast />
-        </ToolbarGroup>
-        {mentions && setMentions && showPreview && (
-          <>
-            <ToolbarDivider />
-            <ToolbarGroup>
-              <Mentions content={value} mentions={mentions} setMentions={setMentions} />
-            </ToolbarGroup>
-          </>
-        )}
-      </div>
+      {!isTouchSmallScreen && (
+        <div className="article-toolbar flex flex-wrap items-center gap-2">{toolbarBody}</div>
+      )}
+      {floatingToolbarVisible && (
+        <div
+          className="fixed left-0 right-0 z-40 flex items-center gap-1 overflow-x-auto bg-background border-t border-border px-2 py-1 shadow-md"
+          style={{ bottom: Math.max(0, keyboardOffset + 8) }}
+        >
+          <div className="flex items-center gap-1 min-w-max">{toolbarBody}</div>
+        </div>
+      )}
       <EditorContent
         editor={editor}
-        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[300px]"
+        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
       />
     </div>
   )
@@ -369,6 +427,9 @@ const ToolbarButton = React.forwardRef<
       )}
       onClick={(e) => {
         e.stopPropagation()
+        if (isTouchDevice() && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(50)
+        }
         onClick()
       }}
     >
