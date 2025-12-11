@@ -105,15 +105,34 @@ export default function PostEditor({
             <div className="space-y-4 px-2 py-6">
               <SheetHeader>
                 {canToggleTabs ? (
-                  <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
-                    <TabsList>
-                      <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
-                      <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
+                  <Tabs
+                    className="w-full"
+                    value={tab}
+                    onValueChange={(v) => setTab(v as 'post' | 'article')}
+                  >
+                    <TabsList className="bg-transparent p-0 h-auto gap-6 justify-start w-full">
+                      <TabsTrigger
+                        value="post"
+                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                      >
+                        {t('New Post')}
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="article"
+                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                      >
+                        {t('New Article')}
+                      </TabsTrigger>
                     </TabsList>
                   </Tabs>
                 ) : (
                   <SheetTitle className="text-start">
                     <Title parentEvent={parentEvent} tab={tab} />
+                  </SheetTitle>
+                )}
+                {canToggleTabs && (
+                  <SheetTitle className="sr-only">
+                    {tab === 'post' ? t('New Post') : t('New Article')}
                   </SheetTitle>
                 )}
                 <SheetDescription className="hidden" />
@@ -143,10 +162,24 @@ export default function PostEditor({
             <DialogHeader>
               {canToggleTabs ? (
                 <DialogTitle>
-                  <Tabs value={tab} onValueChange={(v) => setTab(v as 'post' | 'article')}>
-                    <TabsList>
-                      <TabsTrigger value="post">{t('New Post')}</TabsTrigger>
-                      <TabsTrigger value="article">{t('New Article')}</TabsTrigger>
+                  <Tabs
+                    className="w-full"
+                    value={tab}
+                    onValueChange={(v) => setTab(v as 'post' | 'article')}
+                  >
+                    <TabsList className="bg-transparent p-0 h-auto gap-6 justify-start w-full">
+                      <TabsTrigger
+                        value="post"
+                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                      >
+                        {t('New Post')}
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="article"
+                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                      >
+                        {t('New Article')}
+                      </TabsTrigger>
                     </TabsList>
                   </Tabs>
                 </DialogTitle>

@@ -7,7 +7,6 @@ import {
   createShortTextNoteDraftEvent,
   deleteDraftEventCache
 } from '@/lib/draft-event'
-import { isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import postEditorCache from '@/services/post-editor-cache.service'
@@ -25,6 +24,7 @@ import PostOptions from './PostOptions'
 import PostRelaySelector from './PostRelaySelector'
 import PostTextarea, { TPostTextareaHandle } from './PostTextarea'
 import Uploader from './Uploader'
+import { isTouchDevice } from '@/lib/utils'
 
 export default function PostContent({
   defaultContent = '',
@@ -60,6 +60,7 @@ export default function PostContent({
     relays: []
   })
   const [minPow, setMinPow] = useState(0)
+  const allowEmoji = useMemo(() => !isTouchDevice(), [])
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
     return (
@@ -264,10 +265,7 @@ export default function PostContent({
               <ImageUp />
             </Button>
           </Uploader>
-          {/* I'm not sure why, but after triggering the virtual keyboard,
-              opening the emoji picker drawer causes an issue,
-              the emoji I tap isn't the one that gets inserted. */}
-          {!isTouchDevice() && (
+          {allowEmoji && (
             <EmojiPickerDialog
               onEmojiClick={(emoji) => {
                 if (!emoji) return

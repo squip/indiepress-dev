@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -6,6 +6,9 @@ import Link from '@tiptap/extension-link'
 import ImageExtension from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown } from 'tiptap-markdown'
+import Uploader from './Uploader'
+import EmojiPickerDialog from '../EmojiPickerDialog'
+import Mentions from './Mentions'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
@@ -15,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { isTouchDevice } from '@/lib/utils'
 import {
   Bold,
   Code,
@@ -24,22 +28,40 @@ import {
   Link as LinkIcon,
   List,
   ListOrdered,
-  Menu,
   Minus,
   Quote,
   Redo,
   Type,
   Underline as UnderlineIcon,
-  Undo
+  Undo,
+  Smile
 } from 'lucide-react'
 
 type ArticleMarkdownEditorProps = {
   value: string
   onChange: (next: string) => void
   showPreview: boolean
+  mentions?: string[]
+  setMentions?: (m: string[]) => void
+  onEmojiSelect?: (emoji: any) => void
+  onUploadStart?: (file: File, cancel: () => void) => void
+  onUploadEnd?: (file: File) => void
+  onUploadProgress?: (file: File, progress: number) => void
+  onUploadSuccess?: ({ url, tags }: { url: string; tags: string[][] }) => void
 }
 
-export default function ArticleMarkdownEditor({ value, onChange, showPreview }: ArticleMarkdownEditorProps) {
+export default function ArticleMarkdownEditor({
+  value,
+  onChange,
+  showPreview,
+  mentions,
+  setMentions,
+  onEmojiSelect,
+  onUploadStart,
+  onUploadEnd,
+  onUploadProgress,
+  onUploadSuccess
+}: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
 
   const getMarkdown = useCallback(
@@ -191,15 +213,33 @@ export default function ArticleMarkdownEditor({ value, onChange, showPreview }: 
             }}
             active={editor.isActive('link')}
           />
-          <ToolbarButton
-            icon={ImageIcon}
-            label="Insert image"
-            onClick={() => {
-              const url = window.prompt('Image URL', 'https://')
-              if (!url) return
-              editor.chain().focus().setImage({ src: url }).run()
+          <Uploader
+            onUploadStart={onUploadStart}
+            onUploadEnd={onUploadEnd}
+            onProgress={onUploadProgress}
+            onUploadSuccess={({ url, tags }) => {
+              onUploadSuccess?.({ url, tags })
+              editor.chain().focus().insertContent(`\n${url}\n`).run()
             }}
-          />
+            accept="image/*,video/*,audio/*"
+          >
+            <ToolbarButton icon={ImageIcon} label="Upload media" onClick={() => {}} />
+          </Uploader>
+          {!isTouchDevice() && (
+            <EmojiPickerDialog
+              onEmojiClick={(emoji) => {
+                onEmojiSelect?.(emoji)
+                if (!emoji) return
+                editor
+                  .chain()
+                  .focus()
+                  .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
+                  .run()
+              }}
+            >
+              <ToolbarButton icon={Smile} label="Emoji" onClick={() => {}} />
+            </EmojiPickerDialog>
+          )}
           <ToolbarButton
             icon={Minus}
             label="Horizontal rule"
@@ -237,10 +277,15 @@ export default function ArticleMarkdownEditor({ value, onChange, showPreview }: 
         </ToolbarGroup>
         <ToolbarDivider />
         <ToolbarGroup>
-          <MenuDropdown editor={editor} />
+          {mentions && setMentions ? (
+            <Mentions content={value} mentions={mentions} setMentions={setMentions} />
+          ) : null}
         </ToolbarGroup>
       </div>
-      <EditorContent editor={editor} className="article-prose tiptap" />
+      <EditorContent
+        editor={editor}
+        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto"
+      />
     </div>
   )
 }
@@ -279,39 +324,6 @@ function HeadingMenu({ editor }: { editor: NonNullable<ReturnType<typeof useEdit
   )
 }
 
-function MenuDropdown({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <ToolbarButton
-          icon={Menu}
-          label="Menu"
-          withText
-          isFirst
-          isLast
-          onClick={() => editor.chain().focus().run()}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-48">
-        <DropdownMenuItem onSelect={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
-          Clear formatting
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            editor.chain().focus().setParagraph().run()
-            editor.commands.setTextSelection(editor.state.doc.content.size)
-          }}
-        >
-          Reset to paragraph
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => editor.chain().focus().setHorizontalRule().run()}>
-          Insert divider
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 function ToolbarGroup({ children }: { children: ReactNode }) {
   return <div className="flex items-center rounded-md border border-input overflow-hidden">{children}</div>
 }
@@ -320,27 +332,22 @@ function ToolbarDivider() {
   return <Separator orientation="vertical" className="h-8" />
 }
 
-function ToolbarButton({
-  icon: Icon,
-  label,
-  onClick,
-  active,
-  disabled,
-  isFirst,
-  isLast,
-  withText
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  onClick: () => void
-  active?: boolean
-  disabled?: boolean
-  isFirst?: boolean
-  isLast?: boolean
-  withText?: boolean
-}) {
+const ToolbarButton = React.forwardRef<
+  HTMLButtonElement,
+  {
+    icon: React.ComponentType<{ className?: string }>
+    label: string
+    onClick: () => void
+    active?: boolean
+    disabled?: boolean
+    isFirst?: boolean
+    isLast?: boolean
+    withText?: boolean
+  }
+>(({ icon: Icon, label, onClick, active, disabled, isFirst, isLast, withText }, ref) => {
   return (
     <Button
+      ref={ref}
       type="button"
       variant="ghost"
       size="sm"
@@ -360,4 +367,5 @@ function ToolbarButton({
       {withText && <span className="ml-1 text-sm">{label}</span>}
     </Button>
   )
-}
+})
+ToolbarButton.displayName = 'ToolbarButton'
