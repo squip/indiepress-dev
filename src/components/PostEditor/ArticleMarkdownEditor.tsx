@@ -6,6 +6,7 @@ import Link from '@tiptap/extension-link'
 import ImageExtension from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown } from 'tiptap-markdown'
+import { createPortal } from 'react-dom'
 import Uploader from './Uploader'
 import EmojiPickerDialog from '../EmojiPickerDialog'
 import Mentions from './Mentions'
@@ -70,14 +71,32 @@ export default function ArticleMarkdownEditor({
   const lastMarkdown = useRef(value)
   const [hasFocus, setHasFocus] = useState(false)
   const [keyboardOffset, setKeyboardOffset] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState<number>(
-    typeof window !== 'undefined' ? window.innerHeight : 0
-  )
   const [isFabOpen, setIsFabOpen] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const keyboardOpenRef = useRef(false)
+  const baselineViewportHeight = useRef<number | null>(null)
+  const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
+  const toolbarDragRef = useRef<{
+    startX: number
+    startScrollLeft: number
+    moved: boolean
+  } | null>(null)
+  const skipToolbarTapRef = useRef(false)
 
-  const isTouchSmallScreen = useMemo(() => {
+  const [isTouchSmallScreen, setIsTouchSmallScreen] = useState(() => {
     if (typeof window === 'undefined') return false
-    return isTouchDevice() && window.innerWidth <= 768
+    // Include tablets/landscape touch devices
+    return isTouchDevice() && window.innerWidth <= 1100
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleResize = () => {
+      setIsTouchSmallScreen(isTouchDevice() && window.innerWidth <= 1100)
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   const getMarkdown = useCallback(
@@ -149,32 +168,50 @@ export default function ArticleMarkdownEditor({
   }, [value, editor])
 
   useEffect(() => {
-    if (!isTouchSmallScreen || typeof window === 'undefined' || typeof window.visualViewport === 'undefined') {
+    if (!isTouchSmallScreen || typeof window === 'undefined') {
       return
     }
     const vv = window.visualViewport
     const update = () => {
       const vpH = vv?.height ?? window.innerHeight
-      setViewportHeight(vpH)
       const offset = Math.max(0, window.innerHeight - vpH - (vv?.offsetTop ?? 0))
       setKeyboardOffset(offset)
+      const baseline = baselineViewportHeight.current
+      if (
+        baseline === null ||
+        (!keyboardOpenRef.current && vpH > baseline - 16) ||
+        (!keyboardOpenRef.current && Math.abs(vpH - baseline) > 200)
+      ) {
+        baselineViewportHeight.current = vpH
+      }
+
+      const deltaFromBaseline = (baselineViewportHeight.current ?? vpH) - vpH
+      const keyboardLikelyOpen = deltaFromBaseline > 110 || offset > 40
+      keyboardOpenRef.current = keyboardLikelyOpen
+      setKeyboardOpen(keyboardLikelyOpen)
+      if (!keyboardLikelyOpen) {
+        setIsFabOpen(false)
+      }
     }
     update()
     vv?.addEventListener('resize', update)
     vv?.addEventListener('scroll', update)
+    window.addEventListener('resize', update)
     return () => {
       vv?.removeEventListener('resize', update)
       vv?.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
     }
   }, [isTouchSmallScreen])
 
   const floatingToolbarVisible = useMemo(() => {
     if (!isTouchSmallScreen) return false
     if (showPreview) return false
-    const innerH = typeof window !== 'undefined' ? window.innerHeight : 0
-    const keyboardLikelyOpen = keyboardOffset > 40 || viewportHeight < innerH - 80
-    return isFabOpen || hasFocus || keyboardLikelyOpen
-  }, [isTouchSmallScreen, showPreview, hasFocus, keyboardOffset, viewportHeight, isFabOpen])
+    if (typeof window !== 'undefined' && typeof window.visualViewport === 'undefined') {
+      return hasFocus
+    }
+    return keyboardOpen
+  }, [isTouchSmallScreen, showPreview, keyboardOpen, hasFocus])
 
   const previewContent = useMemo(() => {
     if (showPreview && editor) {
@@ -207,6 +244,7 @@ export default function ArticleMarkdownEditor({
           onClick={() => editor.chain().focus().undo().run()}
           disabled={!editor.can().undo()}
           isFirst
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Redo}
@@ -214,28 +252,32 @@ export default function ArticleMarkdownEditor({
           onClick={() => editor.chain().focus().redo().run()}
           disabled={!editor.can().redo()}
           isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
       </ToolbarGroup>
       <ToolbarDivider />
       <ToolbarGroup>
-        <HeadingMenu editor={editor} />
+        <HeadingMenu editor={editor} shouldIgnoreTap={() => skipToolbarTapRef.current} />
         <ToolbarButton
           icon={Bold}
           label="Bold"
           onClick={() => editor.chain().focus().toggleBold().run()}
           active={editor.isActive('bold')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Italic}
           label="Italic"
           onClick={() => editor.chain().focus().toggleItalic().run()}
           active={editor.isActive('italic')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={UnderlineIcon}
           label="Underline"
           onClick={() => editor.chain().focus().toggleUnderline().run()}
           active={editor.isActive('underline')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Code}
@@ -243,6 +285,7 @@ export default function ArticleMarkdownEditor({
           onClick={() => editor.chain().focus().toggleCode().run()}
           active={editor.isActive('code')}
           isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
       </ToolbarGroup>
       <ToolbarDivider />
@@ -261,6 +304,7 @@ export default function ArticleMarkdownEditor({
             editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
           }}
           active={editor.isActive('link')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <Uploader
           onUploadStart={onUploadStart}
@@ -271,8 +315,14 @@ export default function ArticleMarkdownEditor({
             editor.chain().focus().insertContent(`\n${url}\n`).run()
           }}
           accept="image/*,video/*,audio/*"
+          onPickerOpen={() => setIsFabOpen(false)}
         >
-          <ToolbarButton icon={ImageIcon} label="Upload media" onClick={() => {}} />
+          <ToolbarButton
+            icon={ImageIcon}
+            label="Upload media"
+            onClick={() => {}}
+            shouldIgnoreTap={() => skipToolbarTapRef.current}
+          />
         </Uploader>
         {!isTouchDevice() && (
           <EmojiPickerDialog
@@ -286,7 +336,12 @@ export default function ArticleMarkdownEditor({
                 .run()
             }}
           >
-            <ToolbarButton icon={Smile} label="Emoji" onClick={() => {}} />
+            <ToolbarButton
+              icon={Smile}
+              label="Emoji"
+              onClick={() => {}}
+              shouldIgnoreTap={() => skipToolbarTapRef.current}
+            />
           </EmojiPickerDialog>
         )}
         <ToolbarButton
@@ -294,6 +349,7 @@ export default function ArticleMarkdownEditor({
           label="Horizontal rule"
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
           isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
       </ToolbarGroup>
       <ToolbarDivider />
@@ -303,18 +359,21 @@ export default function ArticleMarkdownEditor({
           label="Bullet list"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
           active={editor.isActive('bulletList')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={ListOrdered}
           label="Numbered list"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
           active={editor.isActive('orderedList')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Quote}
           label="Blockquote"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
           active={editor.isActive('blockquote')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={CodeXml}
@@ -322,11 +381,19 @@ export default function ArticleMarkdownEditor({
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
           active={editor.isActive('codeBlock')}
           isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
       </ToolbarGroup>
       <ToolbarDivider />
       <ToolbarGroup>
-        <ToolbarButton icon={Save} label="Save Draft" onClick={() => onSaveDraft?.()} isFirst isLast />
+        <ToolbarButton
+          icon={Save}
+          label="Save Draft"
+          onClick={() => onSaveDraft?.()}
+          isFirst
+          isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
       </ToolbarGroup>
       {mentions && setMentions && showPreview && (
         <>
@@ -344,37 +411,81 @@ export default function ArticleMarkdownEditor({
       {!isTouchSmallScreen && (
         <div className="article-toolbar flex flex-wrap items-center gap-2">{toolbarBody}</div>
       )}
-      {floatingToolbarVisible && (
-        <div
-          className="fixed left-0 right-0 z-40 flex items-center justify-end px-2 py-1"
-          style={{ bottom: Math.max(0, keyboardOffset + 8) }}
-        >
-          <div className="relative inline-flex items-center gap-2">
-            <div
-              className={`flex items-center gap-1 overflow-x-auto bg-background border border-border px-2 py-1 rounded-md shadow-md min-w-max transition-all duration-200 ${
-                isFabOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-2 pointer-events-none'
-              }`}
-            >
-              {toolbarBody}
+      {floatingToolbarVisible &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed left-0 right-0 z-[80] flex items-center justify-end px-4 pb-2 pointer-events-none"
+            style={{
+              bottom: Math.max(12, keyboardOffset + 12),
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+            }}
+          >
+            <div className="relative inline-flex items-center gap-2 pointer-events-auto">
+              <div
+                className={`flex items-center gap-1 overflow-x-auto whitespace-nowrap bg-background border border-border px-2 py-2 rounded-md shadow-lg transition-all duration-200 ease-out origin-bottom-right touch-pan-x ${
+                  isFabOpen
+                    ? 'opacity-100 translate-x-0'
+                    : 'opacity-0 translate-x-4 pointer-events-none'
+                }`}
+                style={{
+                  maxWidth: 'calc(100vw - 72px)',
+                  width: 'calc(100vw - 72px)',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+                ref={toolbarScrollRef}
+                onTouchStart={(e) => {
+                  if (!toolbarScrollRef.current) return
+                  const touch = e.touches[0]
+                  toolbarDragRef.current = {
+                    startX: touch.clientX,
+                    startScrollLeft: toolbarScrollRef.current.scrollLeft,
+                    moved: false
+                  }
+                  skipToolbarTapRef.current = false
+                }}
+                onTouchMove={(e) => {
+                  if (!toolbarScrollRef.current || !toolbarDragRef.current) return
+                  const touch = e.touches[0]
+                  const deltaX = touch.clientX - toolbarDragRef.current.startX
+                  if (Math.abs(deltaX) > 4) {
+                    toolbarDragRef.current.moved = true
+                    skipToolbarTapRef.current = true
+                  }
+                  toolbarScrollRef.current.scrollLeft =
+                    toolbarDragRef.current.startScrollLeft - deltaX
+                  if (toolbarDragRef.current.moved) {
+                    e.preventDefault()
+                  }
+                }}
+                onTouchEnd={() => {
+                  toolbarDragRef.current = null
+                  requestAnimationFrame(() => {
+                    skipToolbarTapRef.current = false
+                  })
+                }}
+              >
+                {toolbarBody}
+              </div>
+              <Button
+                size="icon"
+                variant="default"
+                className="shadow-lg rounded-md h-11 w-11"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={() => {
+                  setIsFabOpen((open: boolean) => !open)
+                  editor?.commands.focus()
+                }}
+              >
+                {isFabOpen ? <SquareX className="h-8 w-8" /> : <SquarePlus className="h-8 w-8" />}
+              </Button>
             </div>
-            <Button
-              size="icon"
-              variant="secondary"
-              className="shadow-md rounded-md"
-              onMouseDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              onClick={() => {
-                setIsFabOpen((open: boolean) => !open)
-                editor?.commands.focus()
-              }}
-            >
-              {isFabOpen ? <SquareX className="h-4 w-4" /> : <SquarePlus className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
       <EditorContent
         editor={editor}
         className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
@@ -383,7 +494,13 @@ export default function ArticleMarkdownEditor({
   )
 }
 
-function HeadingMenu({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
+function HeadingMenu({
+  editor,
+  shouldIgnoreTap
+}: {
+  editor: NonNullable<ReturnType<typeof useEditor>>
+  shouldIgnoreTap: () => boolean
+}) {
   const isHeadingActive = (level: number) => editor.isActive('heading', { level })
   return (
     <DropdownMenu>
@@ -393,6 +510,7 @@ function HeadingMenu({ editor }: { editor: NonNullable<ReturnType<typeof useEdit
           label="Style"
           active={isHeadingActive(1) || isHeadingActive(2) || isHeadingActive(3) || isHeadingActive(4)}
           isFirst
+          shouldIgnoreTap={shouldIgnoreTap}
           onClick={() => editor.chain().focus().run()}
         />
       </DropdownMenuTrigger>
@@ -418,7 +536,11 @@ function HeadingMenu({ editor }: { editor: NonNullable<ReturnType<typeof useEdit
 }
 
 function ToolbarGroup({ children }: { children: ReactNode }) {
-  return <div className="flex items-center rounded-md border border-input overflow-hidden">{children}</div>
+  return (
+    <div className="flex items-center rounded-md border border-input overflow-hidden shrink-0">
+      {children}
+    </div>
+  )
 }
 
 function ToolbarDivider() {
@@ -436,8 +558,9 @@ const ToolbarButton = React.forwardRef<
     isFirst?: boolean
     isLast?: boolean
     withText?: boolean
+    shouldIgnoreTap?: () => boolean
   }
->(({ icon: Icon, label, onClick, active, disabled, isFirst, isLast, withText }, ref) => {
+>(({ icon: Icon, label, onClick, active, disabled, isFirst, isLast, withText, shouldIgnoreTap }, ref) => {
   return (
     <Button
       ref={ref}
@@ -447,7 +570,7 @@ const ToolbarButton = React.forwardRef<
       disabled={disabled}
       data-active={active ? 'true' : undefined}
       className={cn(
-        'toolbar-button h-8 px-1.5 min-w-0 shadow-none border-r border-input rounded-none hover:bg-accent hover:text-accent-foreground',
+        'toolbar-button h-8 px-1.5 min-w-[38px] shadow-none border-r border-input rounded-none hover:bg-accent hover:text-accent-foreground shrink-0',
         isFirst && 'rounded-l-md',
         isLast && 'rounded-r-md border-r-0'
       )}
@@ -458,6 +581,7 @@ const ToolbarButton = React.forwardRef<
       }}
       onClick={(e) => {
         e.stopPropagation()
+        if (shouldIgnoreTap?.()) return
         if (isTouchDevice() && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(50)
         }

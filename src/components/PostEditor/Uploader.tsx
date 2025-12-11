@@ -9,6 +9,7 @@ export default function Uploader({
   onUploadEnd,
   onProgress,
   className,
+  onPickerOpen,
   accept = 'image/*'
 }: {
   children: React.ReactNode
@@ -17,6 +18,7 @@ export default function Uploader({
   onUploadEnd?: (file: File) => void
   onProgress?: (file: File, progress: number) => void
   className?: string
+  onPickerOpen?: () => void
   accept?: string
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -56,6 +58,7 @@ export default function Uploader({
   }
 
   const handleUploadClick = () => {
+    onPickerOpen?.()
     if (fileInputRef.current) {
       fileInputRef.current.value = '' // clear the value so that the same file can be uploaded again
       fileInputRef.current.click()
