@@ -78,10 +78,22 @@ export default function ArticleMarkdownEditor({
   const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
   const toolbarDragRef = useRef<{
     startX: number
-    startScrollLeft: number
+    startScrollLeft: number,
     moved: boolean
   } | null>(null)
   const skipToolbarTapRef = useRef(false)
+  const [scrollShadows, setScrollShadows] = useState({ left: false, right: false })
+
+  const updateScrollShadows = useCallback(() => {
+    const el = toolbarScrollRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    const maxScrollLeft = Math.max(0, scrollWidth - clientWidth)
+    setScrollShadows({
+      left: scrollLeft > 2,
+      right: scrollLeft < maxScrollLeft - 2
+    })
+  }, [])
 
   const [isTouchSmallScreen, setIsTouchSmallScreen] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -166,6 +178,22 @@ export default function ArticleMarkdownEditor({
     editor.commands.setContent(value || '')
     lastMarkdown.current = value
   }, [value, editor])
+
+  useEffect(() => {
+    const el = toolbarScrollRef.current
+    if (!el) return
+    updateScrollShadows()
+    const handler = () => updateScrollShadows()
+    el.addEventListener('scroll', handler, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', handler)
+    }
+  }, [updateScrollShadows, isTouchSmallScreen, isFabOpen])
+
+  useEffect(() => {
+    if (!isFabOpen) return
+    requestAnimationFrame(() => updateScrollShadows())
+  }, [isFabOpen, updateScrollShadows])
 
   useEffect(() => {
     if (!isTouchSmallScreen || typeof window === 'undefined') {
@@ -422,50 +450,63 @@ export default function ArticleMarkdownEditor({
             }}
           >
             <div className="relative inline-flex items-center gap-2 pointer-events-auto">
-              <div
-                className={`flex items-center gap-1 overflow-x-auto whitespace-nowrap bg-background border border-border px-2 py-2 rounded-md shadow-lg transition-all duration-200 ease-out origin-bottom-right touch-pan-x ${
-                  isFabOpen
-                    ? 'opacity-100 translate-x-0'
-                    : 'opacity-0 translate-x-4 pointer-events-none'
-                }`}
-                style={{
-                  maxWidth: 'calc(100vw - 72px)',
-                  width: 'calc(100vw - 72px)',
-                  WebkitOverflowScrolling: 'touch'
-                }}
-                ref={toolbarScrollRef}
-                onTouchStart={(e) => {
-                  if (!toolbarScrollRef.current) return
-                  const touch = e.touches[0]
-                  toolbarDragRef.current = {
-                    startX: touch.clientX,
-                    startScrollLeft: toolbarScrollRef.current.scrollLeft,
-                    moved: false
-                  }
-                  skipToolbarTapRef.current = false
-                }}
-                onTouchMove={(e) => {
-                  if (!toolbarScrollRef.current || !toolbarDragRef.current) return
-                  const touch = e.touches[0]
-                  const deltaX = touch.clientX - toolbarDragRef.current.startX
-                  if (Math.abs(deltaX) > 4) {
-                    toolbarDragRef.current.moved = true
-                    skipToolbarTapRef.current = true
-                  }
-                  toolbarScrollRef.current.scrollLeft =
-                    toolbarDragRef.current.startScrollLeft - deltaX
-                  if (toolbarDragRef.current.moved) {
-                    e.preventDefault()
-                  }
-                }}
-                onTouchEnd={() => {
-                  toolbarDragRef.current = null
-                  requestAnimationFrame(() => {
+              <div className="relative">
+                <div
+                  className={`flex items-center gap-1 overflow-x-auto whitespace-nowrap bg-background border border-border px-2 py-2 rounded-md shadow-lg transition-all duration-200 ease-out origin-bottom-right touch-pan-x ${
+                    isFabOpen
+                      ? 'opacity-100 translate-x-0'
+                      : 'opacity-0 translate-x-4 pointer-events-none'
+                  }`}
+                  style={{
+                    maxWidth: 'calc(100vw - 72px)',
+                    width: 'calc(100vw - 72px)',
+                    WebkitOverflowScrolling: 'touch'
+                  }}
+                  ref={toolbarScrollRef}
+                  onTouchStart={(e) => {
+                    if (!toolbarScrollRef.current) return
+                    const touch = e.touches[0]
+                    toolbarDragRef.current = {
+                      startX: touch.clientX,
+                      startScrollLeft: toolbarScrollRef.current.scrollLeft,
+                      moved: false
+                    }
                     skipToolbarTapRef.current = false
-                  })
-                }}
-              >
-                {toolbarBody}
+                  }}
+                  onTouchMove={(e) => {
+                    if (!toolbarScrollRef.current || !toolbarDragRef.current) return
+                    const touch = e.touches[0]
+                    const deltaX = touch.clientX - toolbarDragRef.current.startX
+                    if (Math.abs(deltaX) > 2) {
+                      toolbarDragRef.current.moved = true
+                      skipToolbarTapRef.current = true
+                    }
+                    toolbarScrollRef.current.scrollLeft =
+                      toolbarDragRef.current.startScrollLeft - deltaX
+                    if (toolbarDragRef.current.moved) {
+                      e.preventDefault()
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    toolbarDragRef.current = null
+                    requestAnimationFrame(() => {
+                      skipToolbarTapRef.current = false
+                    })
+                  }}
+                >
+                  {toolbarBody}
+                </div>
+                {/* Gradient cues for scrollability */}
+                <div
+                  className={`pointer-events-none absolute inset-y-1 left-0 w-6 rounded-l-md bg-gradient-to-r from-background to-transparent transition-opacity duration-150 ${
+                    scrollShadows.left && isFabOpen ? 'opacity-70' : 'opacity-0'
+                  }`}
+                />
+                <div
+                  className={`pointer-events-none absolute inset-y-1 right-0 w-6 rounded-r-md bg-gradient-to-l from-background to-transparent transition-opacity duration-150 ${
+                    scrollShadows.right && isFabOpen ? 'opacity-70' : 'opacity-0'
+                  }`}
+                />
               </div>
               <Button
                 size="icon"
