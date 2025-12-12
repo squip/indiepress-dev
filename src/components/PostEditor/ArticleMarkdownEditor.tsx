@@ -78,11 +78,14 @@ export default function ArticleMarkdownEditor({
   const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
   const toolbarDragRef = useRef<{
     startX: number
-    startScrollLeft: number,
+    startScrollLeft: number
     moved: boolean
   } | null>(null)
   const skipToolbarTapRef = useRef(false)
   const [scrollShadows, setScrollShadows] = useState({ left: false, right: false })
+  const inertiaFrameRef = useRef<number | null>(null)
+  const lastTouchRef = useRef<{ x: number; t: number } | null>(null)
+  const prevTouchRef = useRef<{ x: number; t: number } | null>(null)
 
   const updateScrollShadows = useCallback(() => {
     const el = toolbarScrollRef.current
@@ -460,17 +463,24 @@ export default function ArticleMarkdownEditor({
                   style={{
                     maxWidth: 'calc(100vw - 72px)',
                     width: 'calc(100vw - 72px)',
-                    WebkitOverflowScrolling: 'touch'
+                    WebkitOverflowScrolling: 'touch',
+                    touchAction: 'pan-x'
                   }}
                   ref={toolbarScrollRef}
                   onTouchStart={(e) => {
                     if (!toolbarScrollRef.current) return
+                    if (inertiaFrameRef.current) {
+                      cancelAnimationFrame(inertiaFrameRef.current)
+                      inertiaFrameRef.current = null
+                    }
                     const touch = e.touches[0]
                     toolbarDragRef.current = {
                       startX: touch.clientX,
                       startScrollLeft: toolbarScrollRef.current.scrollLeft,
                       moved: false
                     }
+                    prevTouchRef.current = null
+                    lastTouchRef.current = { x: touch.clientX, t: performance.now() }
                     skipToolbarTapRef.current = false
                   }}
                   onTouchMove={(e) => {
@@ -481,14 +491,45 @@ export default function ArticleMarkdownEditor({
                       toolbarDragRef.current.moved = true
                       skipToolbarTapRef.current = true
                     }
-                    toolbarScrollRef.current.scrollLeft =
-                      toolbarDragRef.current.startScrollLeft - deltaX
+                    const next = toolbarDragRef.current.startScrollLeft - deltaX
+                    toolbarScrollRef.current.scrollLeft = next
+                    updateScrollShadows()
+                    prevTouchRef.current = lastTouchRef.current
+                    lastTouchRef.current = { x: touch.clientX, t: performance.now() }
                     if (toolbarDragRef.current.moved) {
                       e.preventDefault()
                     }
                   }}
                   onTouchEnd={() => {
+                    const el = toolbarScrollRef.current
+                    const last = lastTouchRef.current
+                    const prev = prevTouchRef.current
                     toolbarDragRef.current = null
+                    if (el && last && prev) {
+                      const dt = Math.max(1, last.t - prev.t)
+                      const velocityPxPerMs = (last.x - prev.x) / dt
+                      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth)
+                      let v = velocityPxPerMs
+                      const friction = 0.94
+                      const bounce = 0.55
+
+                      const step = () => {
+                        if (!el) return
+                        const next = el.scrollLeft - v * 16 // approx per-frame delta
+                        el.scrollLeft = Math.min(maxScroll + 32, Math.max(-32, next))
+                        updateScrollShadows()
+                        const atBoundary = el.scrollLeft < 0 || el.scrollLeft > maxScroll
+                        v *= friction * (atBoundary ? bounce : 1)
+                        if (Math.abs(v) < 0.05) {
+                          if (el.scrollLeft < 0) el.scrollTo({ left: 0, behavior: 'smooth' })
+                          if (el.scrollLeft > maxScroll) el.scrollTo({ left: maxScroll, behavior: 'smooth' })
+                          inertiaFrameRef.current = null
+                          return
+                        }
+                        inertiaFrameRef.current = requestAnimationFrame(step)
+                      }
+                      inertiaFrameRef.current = requestAnimationFrame(step)
+                    }
                     requestAnimationFrame(() => {
                       skipToolbarTapRef.current = false
                     })
