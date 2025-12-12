@@ -124,7 +124,7 @@ export default function ArticleMarkdownEditor({
     return Boolean(import.meta.env.DEV)
   })
   const [debugEntries, setDebugEntries] = useState<
-    { id: number; time: string; message: string; data?: unknown }[]
+    { id: string; time: string; message: string; data?: unknown }[]
   >([])
   const [debugPanelOpen, setDebugPanelOpen] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -204,7 +204,24 @@ export default function ArticleMarkdownEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] }
       }),
-      Underline,
+      Underline.extend({
+        addStorage() {
+          return {
+            markdown: {
+              // Markdown has no native underline; serialize by keeping plain text (no markers).
+              serialize: {
+                open: '',
+                close: '',
+                mixable: true,
+                expelEnclosingWhitespace: true
+              },
+              parse: {
+                // handled by markdown-it if html is enabled; otherwise ignored
+              }
+            }
+          }
+        }
+      }),
       Link.configure({
         openOnClick: true,
         autolink: true,
@@ -359,14 +376,25 @@ export default function ArticleMarkdownEditor({
 
   useEffect(() => {
     if (!editor) return
+    const applyContent = (content: any) => {
+      const run = () => {
+        if (!editor) return
+        editor.commands.setContent(content)
+      }
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(run)
+      } else {
+        Promise.resolve().then(run)
+      }
+    }
     if (initialJson && initialJson !== initialJsonRef.current) {
       initialJsonRef.current = initialJson
-      editor.commands.setContent(initialJson)
+      applyContent(initialJson)
       lastMarkdown.current = getMarkdown(editor as any)
       return
     }
     if (value === lastMarkdown.current) return
-    editor.commands.setContent(value || '')
+    applyContent(value || '')
     lastMarkdown.current = value
   }, [value, initialJson, editor, getMarkdown])
 
@@ -1231,7 +1259,7 @@ function DebugConsole({
   setEnabled: (v: boolean) => void
   open: boolean
   setOpen: (v: boolean) => void
-  entries: { id: number; time: string; message: string; data?: unknown }[]
+  entries: { id: string; time: string; message: string; data?: unknown }[]
   onClear: () => void
 }) {
   return (
