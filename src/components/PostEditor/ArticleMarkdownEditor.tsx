@@ -135,12 +135,14 @@ export default function ArticleMarkdownEditor({
   })
   const linkSelectionRef = useRef<{ from: number; to: number } | null>(null)
 
+  const debugIdRef = useRef(0)
   const debugLog = useCallback(
     (message: string, data?: unknown) => {
       if (!debugEnabled) return
       const now = new Date()
+      debugIdRef.current += 1
       const entry = {
-        id: now.getTime(),
+        id: `${now.getTime()}-${debugIdRef.current}`,
         time: now.toLocaleTimeString(),
         message,
         data: serializeDebug(data)
@@ -1192,7 +1194,17 @@ function LinkPreviewView({ node }: any) {
   }
   return (
     <NodeViewWrapper data-link-preview className="my-2">
-      <WebPreview url={url} className="my-2" showFallback />
+      <div className="space-y-2">
+        <WebPreview url={url} className="my-2" showFallback={false} />
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          className="text-primary underline break-words"
+        >
+          {url}
+        </a>
+      </div>
     </NodeViewWrapper>
   )
 }

@@ -265,6 +265,7 @@
   color: hsl(var(--primary));
   text-decoration: underline;
   cursor: pointer;
+  word-break: break-word;
 }
 
 .article-editor .article-editor__content ul {

@@ -12,18 +12,25 @@ export function useFetchWebMetadata(url: string) {
 
   useEffect(() => {
     setIsLoading(true)
+    let cancelled = false
     webService
       .fetchWebMetadata(url)
       .then((metadata) => {
+        if (cancelled) return
         setMetadata(metadata)
       })
       .catch((error) => {
+        if (cancelled) return
         console.warn('Failed to fetch web metadata', error)
         setMetadata({})
       })
       .finally(() => {
+        if (cancelled) return
         setIsLoading(false)
       })
+    return () => {
+      cancelled = true
+    }
   }, [url])
 
   return { ...metadata, isLoading }
