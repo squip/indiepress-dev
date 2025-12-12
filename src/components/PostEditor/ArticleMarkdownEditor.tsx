@@ -893,7 +893,7 @@ export default function ArticleMarkdownEditor({
         )}
       <EditorContent
         editor={editor}
-        className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
+        className="article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
       />
       <DebugConsole
         enabled={debugEnabled}
