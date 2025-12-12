@@ -7,7 +7,7 @@ import React, {
   useState
 } from 'react'
 import { Node } from '@tiptap/core'
-import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
+import { EditorContent, ReactNodeViewRenderer, useEditor, NodeViewWrapper } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
@@ -204,7 +204,7 @@ export default function ArticleMarkdownEditor({
       }),
       Underline,
       Link.configure({
-        openOnClick: false,
+        openOnClick: true,
         autolink: true,
         linkOnPaste: true
       }),
@@ -718,12 +718,13 @@ export default function ArticleMarkdownEditor({
               chain.setTextSelection(linkSelectionRef.current)
             }
             if (editor.state.selection.empty) {
+              const insertText = text || trimmed
+              const start = editor.state.selection.from
               chain
-                .insertContent({
-                  type: 'text',
-                  text: text || trimmed,
-                  marks: [{ type: 'link', attrs: { href: trimmed } }]
-                })
+                .insertContent(insertText)
+                .setTextSelection({ from: start, to: start + insertText.length })
+                .extendMarkRange('link')
+                .setLink({ href: trimmed })
                 .run()
               debugLog('link:insert', { url: trimmed, text: text || trimmed })
               linkSelectionRef.current = null
@@ -1183,15 +1184,27 @@ function LinkPreviewView({ node }: any) {
   const url = node.attrs.url as string
   if (!url) return null
   if (isYoutubeUrl(url)) {
-    return <YoutubeEmbeddedPlayer url={url} className="my-2" mustLoad />
+    return (
+      <NodeViewWrapper data-link-preview className="my-2">
+        <YoutubeEmbeddedPlayer url={url} className="my-2" mustLoad />
+      </NodeViewWrapper>
+    )
   }
-  return <WebPreview url={url} className="my-2" />
+  return (
+    <NodeViewWrapper data-link-preview className="my-2">
+      <WebPreview url={url} className="my-2" showFallback />
+    </NodeViewWrapper>
+  )
 }
 
 function MediaEmbedView({ node }: any) {
   const url = node.attrs.src as string
   if (!url) return null
-  return <VideoPlayer src={url} className="my-2" />
+  return (
+    <NodeViewWrapper data-media-embed className="my-2">
+      <VideoPlayer src={url} className="my-2" />
+    </NodeViewWrapper>
+  )
 }
 
 function DebugConsole({

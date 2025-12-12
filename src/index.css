@@ -261,6 +261,20 @@
   margin-bottom: 0.5rem;
 }
 
+.article-editor .article-editor__content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.article-editor .article-editor__content ul {
+  list-style-type: disc;
+}
+
+.article-editor .article-editor__content ol {
+  list-style-type: decimal;
+}
+
 .article-editor .article-editor__content ul,
 .article-editor .article-editor__content ol {
   margin-left: 1.25rem;
