@@ -63,6 +63,7 @@ import { ClipboardAndDropHandler } from './PostTextarea/ClipboardAndDropHandler'
 import WebPreview from '../WebPreview'
 import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
 import VideoPlayer from '../VideoPlayer'
+import { DOMParser as PMDOMParser } from '@tiptap/pm/model'
 
 type ArticleMarkdownEditorProps = {
   value: string
@@ -132,6 +133,7 @@ export default function ArticleMarkdownEditor({
     if (stored === 'false') return false
     return Boolean(import.meta.env.DEV)
   })
+  const linkSelectionRef = useRef<{ from: number; to: number } | null>(null)
 
   const debugLog = useCallback(
     (message: string, data?: unknown) => {
@@ -259,6 +261,29 @@ export default function ArticleMarkdownEditor({
     editorProps: {
       attributes: {
         class: 'article-editor__content'
+      },
+      handlePaste: (view, event) => {
+        const hasFiles =
+          event.clipboardData?.files && Array.from(event.clipboardData.files).some((f) => f)
+        if (hasFiles) {
+          // Let ClipboardAndDropHandler manage file uploads.
+          return false
+        }
+        const pastedText = event.clipboardData?.getData('text/plain') ?? ''
+        if (!pastedText.trim()) {
+          return false
+        }
+
+        const slice = parseMarkdownToSlice(editor, pastedText, debugLog)
+        if (!slice) {
+          return false
+        }
+
+        event.preventDefault()
+        const tr = view.state.tr.replaceSelection(slice)
+        view.dispatch(tr)
+        convertStandaloneUrls(editor, debugLog)
+        return true
       },
       handleKeyDown: (view, event) => {
         const isList =
@@ -485,6 +510,8 @@ export default function ArticleMarkdownEditor({
           onClick={() => {
             const previousUrl = editor.getAttributes('link').href as string | undefined
             setLinkUrl(previousUrl || 'https://')
+            const { from, to } = editor.state.selection
+            linkSelectionRef.current = { from, to }
             const selectionText = editor.state.doc.textBetween(
               editor.state.selection.from,
               editor.state.selection.to,
@@ -677,31 +704,36 @@ export default function ArticleMarkdownEditor({
         setOpen={setLinkDialogOpen}
         url={linkUrl}
         setUrl={setLinkUrl}
-        text={linkText}
-        setText={setLinkText}
-        onSubmit={(url, text) => {
-          const trimmed = url.trim()
-          if (!trimmed) {
-            editor.chain().focus().unsetLink().run()
-            debugLog('link:unset')
-            return
-          }
-          const chain = editor.chain().focus()
-          if (editor.state.selection.empty) {
-            chain
-              .insertContent({
-                type: 'text',
-                text: text || trimmed,
-                marks: [{ type: 'link', attrs: { href: trimmed } }]
-              })
-              .run()
-            debugLog('link:insert', { url: trimmed, text: text || trimmed })
-            return
-          }
-          chain.extendMarkRange('link').setLink({ href: trimmed }).run()
-          debugLog('link:apply', { url: trimmed })
-        }}
-      />
+          text={linkText}
+          setText={setLinkText}
+          onSubmit={(url, text) => {
+            const trimmed = url.trim()
+            if (!trimmed) {
+              editor.chain().focus().unsetLink().run()
+              debugLog('link:unset')
+              return
+            }
+            const chain = editor.chain().focus()
+            if (editor.state.selection.empty && linkSelectionRef.current) {
+              chain.setTextSelection(linkSelectionRef.current)
+            }
+            if (editor.state.selection.empty) {
+              chain
+                .insertContent({
+                  type: 'text',
+                  text: text || trimmed,
+                  marks: [{ type: 'link', attrs: { href: trimmed } }]
+                })
+                .run()
+              debugLog('link:insert', { url: trimmed, text: text || trimmed })
+              linkSelectionRef.current = null
+              return
+            }
+            chain.extendMarkRange('link').setLink({ href: trimmed }).run()
+            debugLog('link:apply', { url: trimmed })
+            linkSelectionRef.current = null
+          }}
+        />
       {!isTouchSmallScreen && (
         <div className="article-toolbar flex flex-wrap items-center gap-2">{toolbarBody}</div>
       )}
@@ -1096,6 +1128,24 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
   })
   if (changed) {
     editor.view.dispatch(tr)
+  }
+}
+
+function parseMarkdownToSlice(editor: any, text: string, debugLog?: (msg: string, data?: unknown) => void) {
+  if (!text?.length) return null
+  const parser = (editor as any)?.storage?.markdown?.parser
+  if (!parser) return null
+  try {
+    const html = parser.parse(text)
+    if (!html || typeof document === 'undefined') return null
+    const container = document.createElement('div')
+    container.innerHTML = html
+    return PMDOMParser.fromSchema(editor.schema).parseSlice(container, {
+      preserveWhitespace: true
+    })
+  } catch (error) {
+    debugLog?.('paste:parse-error', { message: (error as Error)?.message })
+    return null
   }
 }
 
