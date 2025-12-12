@@ -1,25 +1,37 @@
-import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EditorContent, useEditor } from '@tiptap/react'
+import React, {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
+import { Node } from '@tiptap/core'
+import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import ImageExtension from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { createPortal } from 'react-dom'
 import Uploader from './Uploader'
 import EmojiPickerDialog from '../EmojiPickerDialog'
 import Mentions from './Mentions'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import rehypeSanitize from 'rehype-sanitize'
-import { remarkNostrLinks, nostrSanitizeSchema } from '@/lib/markdown'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
-import { isTouchDevice } from '@/lib/utils'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn, isTouchDevice } from '@/lib/utils'
 import {
   Bold,
   Code,
@@ -38,13 +50,25 @@ import {
   Smile,
   Save,
   SquarePlus,
-  SquareX
+  SquareX,
+  ListTodo,
+  IndentIncrease,
+  IndentDecrease
 } from 'lucide-react'
+import Mention from './PostTextarea/Mention'
+import mentionSuggestion from './PostTextarea/Mention/suggestion'
+import Emoji from './PostTextarea/Emoji'
+import emojiSuggestion from './PostTextarea/Emoji/suggestion'
+import { ClipboardAndDropHandler } from './PostTextarea/ClipboardAndDropHandler'
+import WebPreview from '../WebPreview'
+import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
+import VideoPlayer from '../VideoPlayer'
 
 type ArticleMarkdownEditorProps = {
   value: string
   onChange: (next: string) => void
-  showPreview: boolean
+  initialJson?: any
+  onJsonChange?: (json: any) => void
   mentions?: string[]
   setMentions?: (m: string[]) => void
   onEmojiSelect?: (emoji: any) => void
@@ -58,7 +82,8 @@ type ArticleMarkdownEditorProps = {
 export default function ArticleMarkdownEditor({
   value,
   onChange,
-  showPreview,
+  initialJson,
+  onJsonChange,
   mentions,
   setMentions,
   onEmojiSelect,
@@ -69,6 +94,7 @@ export default function ArticleMarkdownEditor({
   onSaveDraft
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
+  const initialJsonRef = useRef<any>(initialJson)
   const [hasFocus, setHasFocus] = useState(false)
   const [keyboardOffset, setKeyboardOffset] = useState(0)
   const [isFabOpen, setIsFabOpen] = useState(false)
@@ -86,6 +112,49 @@ export default function ArticleMarkdownEditor({
   const inertiaFrameRef = useRef<number | null>(null)
   const lastTouchRef = useRef<{ x: number; t: number } | null>(null)
   const prevTouchRef = useRef<{ x: number; t: number } | null>(null)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('https://')
+  const [linkText, setLinkText] = useState('')
+  const [debugEnabled, setDebugEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const stored = localStorage.getItem('article-editor-debug')
+    if (stored === 'true') return true
+    if (stored === 'false') return false
+    return Boolean(import.meta.env.DEV)
+  })
+  const [debugEntries, setDebugEntries] = useState<
+    { id: number; time: string; message: string; data?: unknown }[]
+  >([])
+  const [debugPanelOpen, setDebugPanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const stored = localStorage.getItem('article-editor-debug')
+    if (stored === 'true') return true
+    if (stored === 'false') return false
+    return Boolean(import.meta.env.DEV)
+  })
+
+  const debugLog = useCallback(
+    (message: string, data?: unknown) => {
+      if (!debugEnabled) return
+      const now = new Date()
+      const entry = {
+        id: now.getTime(),
+        time: now.toLocaleTimeString(),
+        message,
+        data: serializeDebug(data)
+      }
+      setDebugEntries((prev) => [...prev.slice(-49), entry])
+      console.log('[ArticleEditor]', message, entry.data ?? '')
+    },
+    [debugEnabled]
+  )
+
+  useEffect(() => {
+    localStorage.setItem('article-editor-debug', debugEnabled ? 'true' : 'false')
+    if (debugEnabled) {
+      setDebugPanelOpen(true)
+    }
+  }, [debugEnabled])
 
   const updateScrollShadows = useCallback(() => {
     const el = toolbarScrollRef.current
@@ -100,7 +169,6 @@ export default function ArticleMarkdownEditor({
 
   const [isTouchSmallScreen, setIsTouchSmallScreen] = useState(() => {
     if (typeof window === 'undefined') return false
-    // Include tablets/landscape touch devices
     return isTouchDevice() && window.innerWidth <= 1100
   })
 
@@ -127,7 +195,7 @@ export default function ArticleMarkdownEditor({
   )
 
   const editor = useEditor({
-    content: value || '',
+    content: initialJsonRef.current ?? (value || ''),
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] }
@@ -138,11 +206,40 @@ export default function ArticleMarkdownEditor({
         autolink: true,
         linkOnPaste: true
       }),
+      TaskList,
+      TaskItem.configure({
+        nested: true
+      }),
       ImageExtension.configure({
         inline: false,
         allowBase64: true,
         HTMLAttributes: {
           class: 'rounded-md my-3 max-w-full'
+        }
+      }),
+      Mention.configure({
+        suggestion: mentionSuggestion
+      }),
+      Emoji.configure({
+        suggestion: emojiSuggestion
+      }),
+      ClipboardAndDropHandler.configure({
+        onUploadStart: (file, cancel) => {
+          onUploadStart?.(file, cancel)
+          debugLog('upload:start', { name: file.name, type: file.type, size: file.size })
+        },
+        onUploadEnd: (file) => onUploadEnd?.(file),
+        onUploadProgress: (file, p) => onUploadProgress?.(file, p),
+        onUploadSuccess: (file, result) => {
+          const handled = insertUploadedMedia(editor, file.type, result.url)
+          if (handled) {
+            onUploadSuccess?.(result)
+            debugLog('upload:inserted', {
+              url: result.url,
+              type: detectMediaType(result.url, file.type)
+            })
+          }
+          return handled
         }
       }),
       Placeholder.configure({
@@ -155,32 +252,96 @@ export default function ArticleMarkdownEditor({
         transformCopiedText: true,
         transformPastedText: true,
         breaks: true
-      })
+      }),
+      LinkPreviewNode,
+      MediaEmbedNode
     ],
     editorProps: {
       attributes: {
         class: 'article-editor__content'
+      },
+      handleKeyDown: (view, event) => {
+        const isList =
+          editor?.isActive('bulletList') ||
+          editor?.isActive('orderedList') ||
+          editor?.isActive('taskList')
+        const isTask = editor?.isActive('taskItem')
+        const isCode = editor?.isActive('codeBlock')
+
+        if (event.key === 'Tab' && (isList || isCode)) {
+          event.preventDefault()
+          if (event.shiftKey) {
+            if (isList) {
+              const type = isTask ? 'taskItem' : 'listItem'
+              editor?.chain().focus().liftListItem(type as any).run()
+            } else if (isCode) {
+              editor?.chain().focus().command(({ tr }) => {
+                const { from, to } = tr.selection
+                tr.replaceRangeWith(from, Math.min(to, from + 4), editor.state.schema.text(''))
+                return true
+              }).run()
+            }
+          } else {
+            if (isList) {
+              const type = isTask ? 'taskItem' : 'listItem'
+              editor?.chain().focus().sinkListItem(type as any).run()
+            } else if (isCode) {
+              editor?.chain().focus().insertContent('    ').run()
+            }
+          }
+          debugLog('keydown:tab', { shift: event.shiftKey, isList, isTask, isCode })
+          return true
+        }
+
+        if (event.key === 'Backspace' && (isList || isCode)) {
+          const { state } = view
+          const { from } = state.selection
+          const $from = state.doc.resolve(from)
+          if ($from.parentOffset === 0) {
+            if (isList) {
+              const type = isTask ? 'taskItem' : 'listItem'
+              editor?.chain().focus().liftListItem(type as any).run()
+              debugLog('keydown:backspace-lift', { isTask })
+              return true
+            }
+          }
+        }
+        return false
       }
     },
     onUpdate: ({ editor }) => {
+      convertStandaloneUrls(editor, debugLog)
       const markdown = getMarkdown(editor as any)
       lastMarkdown.current = markdown
       onChange(markdown)
+      onJsonChange?.(editor.getJSON())
+      debugLog('update', {
+        markdownLength: markdown?.length ?? 0,
+        selection: editor.state.selection?.toJSON?.()
+      })
     },
     onFocus() {
       setHasFocus(true)
+      debugLog('focus')
     },
     onBlur() {
       setHasFocus(false)
+      debugLog('blur')
     }
   })
 
   useEffect(() => {
     if (!editor) return
+    if (initialJson && initialJson !== initialJsonRef.current) {
+      initialJsonRef.current = initialJson
+      editor.commands.setContent(initialJson)
+      lastMarkdown.current = getMarkdown(editor as any)
+      return
+    }
     if (value === lastMarkdown.current) return
     editor.commands.setContent(value || '')
     lastMarkdown.current = value
-  }, [value, editor])
+  }, [value, initialJson, editor, getMarkdown])
 
   useEffect(() => {
     const el = toolbarScrollRef.current
@@ -237,32 +398,11 @@ export default function ArticleMarkdownEditor({
 
   const floatingToolbarVisible = useMemo(() => {
     if (!isTouchSmallScreen) return false
-    if (showPreview) return false
     if (typeof window !== 'undefined' && typeof window.visualViewport === 'undefined') {
       return hasFocus
     }
     return keyboardOpen
-  }, [isTouchSmallScreen, showPreview, keyboardOpen, hasFocus])
-
-  const previewContent = useMemo(() => {
-    if (showPreview && editor) {
-      return getMarkdown(editor as any)
-    }
-    return value || ''
-  }, [editor, getMarkdown, showPreview, value])
-
-  if (showPreview) {
-    return (
-      <div className="prose prose-base dark:prose-invert max-w-none border rounded-lg p-4 bg-background">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkNostrLinks]}
-          rehypePlugins={[rehypeRaw, [rehypeSanitize, nostrSanitizeSchema]]}
-        >
-          {previewContent}
-        </ReactMarkdown>
-      </div>
-    )
-  }
+  }, [isTouchSmallScreen, keyboardOpen, hasFocus])
 
   if (!editor) return null
 
@@ -272,7 +412,10 @@ export default function ArticleMarkdownEditor({
         <ToolbarButton
           icon={Undo}
           label="Undo"
-          onClick={() => editor.chain().focus().undo().run()}
+          onClick={() => {
+            debugLog('toolbar:undo')
+            editor.chain().focus().undo().run()
+          }}
           disabled={!editor.can().undo()}
           isFirst
           shouldIgnoreTap={() => skipToolbarTapRef.current}
@@ -280,7 +423,10 @@ export default function ArticleMarkdownEditor({
         <ToolbarButton
           icon={Redo}
           label="Redo"
-          onClick={() => editor.chain().focus().redo().run()}
+          onClick={() => {
+            debugLog('toolbar:redo')
+            editor.chain().focus().redo().run()
+          }}
           disabled={!editor.can().redo()}
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
@@ -292,28 +438,40 @@ export default function ArticleMarkdownEditor({
         <ToolbarButton
           icon={Bold}
           label="Bold"
-          onClick={() => editor.chain().focus().toggleBold().run()}
+          onClick={() => {
+            debugLog('toolbar:bold')
+            editor.chain().focus().toggleBold().run()
+          }}
           active={editor.isActive('bold')}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Italic}
           label="Italic"
-          onClick={() => editor.chain().focus().toggleItalic().run()}
+          onClick={() => {
+            debugLog('toolbar:italic')
+            editor.chain().focus().toggleItalic().run()
+          }}
           active={editor.isActive('italic')}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={UnderlineIcon}
           label="Underline"
-          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          onClick={() => {
+            debugLog('toolbar:underline')
+            editor.chain().focus().toggleUnderline().run()
+          }}
           active={editor.isActive('underline')}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
           icon={Code}
           label="Inline code"
-          onClick={() => editor.chain().focus().toggleCode().run()}
+          onClick={() => {
+            debugLog('toolbar:inline-code')
+            editor.chain().focus().toggleCode().run()
+          }}
           active={editor.isActive('code')}
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
@@ -326,13 +484,15 @@ export default function ArticleMarkdownEditor({
           label="Insert link"
           onClick={() => {
             const previousUrl = editor.getAttributes('link').href as string | undefined
-            const url = window.prompt('Enter URL', previousUrl || 'https://')
-            if (url === null) return
-            if (url === '') {
-              editor.chain().focus().unsetLink().run()
-              return
-            }
-            editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+            setLinkUrl(previousUrl || 'https://')
+            const selectionText = editor.state.doc.textBetween(
+              editor.state.selection.from,
+              editor.state.selection.to,
+              ' '
+            )
+            setLinkText(selectionText || '')
+            debugLog('toolbar:link-open', { previousUrl, selectionText })
+            setLinkDialogOpen(true)
           }}
           active={editor.isActive('link')}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
@@ -343,7 +503,19 @@ export default function ArticleMarkdownEditor({
           onProgress={onUploadProgress}
           onUploadSuccess={({ url, tags }) => {
             onUploadSuccess?.({ url, tags })
-            editor.chain().focus().insertContent(`\n${url}\n`).run()
+            const type = detectMediaType(url)
+            if (type === 'image') {
+              editor.chain().focus().setImage({ src: url, alt: '' }).run()
+            } else if (type === 'video') {
+              editor
+                .chain()
+                .focus()
+                .insertContent({ type: 'mediaEmbed', attrs: { src: url, mediaType: 'video' } })
+                .run()
+            } else {
+              editor.chain().focus().insertContent(url).run()
+            }
+            debugLog('toolbar:upload-insert', { url, type })
           }}
           accept="image/*,video/*,audio/*"
           onPickerOpen={() => setIsFabOpen(false)}
@@ -365,6 +537,9 @@ export default function ArticleMarkdownEditor({
                 .focus()
                 .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
                 .run()
+              debugLog('toolbar:emoji-insert', {
+                emoji: typeof emoji === 'string' ? emoji : emoji?.shortcode
+              })
             }}
           >
             <ToolbarButton
@@ -375,10 +550,57 @@ export default function ArticleMarkdownEditor({
             />
           </EmojiPickerDialog>
         )}
+          <ToolbarButton
+            icon={Minus}
+            label="Horizontal rule"
+            onClick={() => {
+              debugLog('toolbar:hr')
+              editor.chain().focus().setHorizontalRule().run()
+            }}
+            isLast
+            shouldIgnoreTap={() => skipToolbarTapRef.current}
+          />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
         <ToolbarButton
-          icon={Minus}
-          label="Horizontal rule"
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          icon={List}
+          label="Bullet list"
+          onClick={() => {
+            debugLog('toolbar:bullet-list')
+            editor.chain().focus().toggleBulletList().run()
+          }}
+          active={editor.isActive('bulletList')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
+        <ToolbarButton
+          icon={ListOrdered}
+          label="Numbered list"
+          onClick={() => {
+            debugLog('toolbar:ordered-list')
+            editor.chain().focus().toggleOrderedList().run()
+          }}
+          active={editor.isActive('orderedList')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
+        <ToolbarButton
+          icon={Quote}
+          label="Blockquote"
+          onClick={() => {
+            debugLog('toolbar:blockquote')
+            editor.chain().focus().toggleBlockquote().run()
+          }}
+          active={editor.isActive('blockquote')}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
+        <ToolbarButton
+          icon={CodeXml}
+          label="Code block"
+          onClick={() => {
+            debugLog('toolbar:code-block')
+            editor.chain().focus().toggleCodeBlock().run()
+          }}
+          active={editor.isActive('codeBlock')}
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
@@ -386,31 +608,39 @@ export default function ArticleMarkdownEditor({
       <ToolbarDivider />
       <ToolbarGroup>
         <ToolbarButton
-          icon={List}
-          label="Bullet list"
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          active={editor.isActive('bulletList')}
+          icon={ListTodo}
+          label="Checkbox"
+          onClick={() => {
+            debugLog('toolbar:checkbox')
+            editor.chain().focus().toggleTaskList().run()
+          }}
+          active={editor.isActive('taskList')}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
-          icon={ListOrdered}
-          label="Numbered list"
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          active={editor.isActive('orderedList')}
+          icon={IndentIncrease}
+          label="Indent"
+          onClick={() => {
+            if (editor.isActive('taskItem')) {
+              editor.chain().focus().sinkListItem('taskItem').run()
+            } else {
+              editor.chain().focus().sinkListItem('listItem').run()
+            }
+            debugLog('toolbar:indent', { activeTask: editor.isActive('taskItem') })
+          }}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
         <ToolbarButton
-          icon={Quote}
-          label="Blockquote"
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          active={editor.isActive('blockquote')}
-          shouldIgnoreTap={() => skipToolbarTapRef.current}
-        />
-        <ToolbarButton
-          icon={CodeXml}
-          label="Code block"
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-          active={editor.isActive('codeBlock')}
+          icon={IndentDecrease}
+          label="Outdent"
+          onClick={() => {
+            if (editor.isActive('taskItem')) {
+              editor.chain().focus().liftListItem('taskItem').run()
+            } else {
+              editor.chain().focus().liftListItem('listItem').run()
+            }
+            debugLog('toolbar:outdent', { activeTask: editor.isActive('taskItem') })
+          }}
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
@@ -420,13 +650,16 @@ export default function ArticleMarkdownEditor({
         <ToolbarButton
           icon={Save}
           label="Save Draft"
-          onClick={() => onSaveDraft?.()}
+          onClick={() => {
+            debugLog('toolbar:save-draft')
+            onSaveDraft?.()
+          }}
           isFirst
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
       </ToolbarGroup>
-      {mentions && setMentions && showPreview && (
+      {mentions && setMentions && (
         <>
           <ToolbarDivider />
           <ToolbarGroup>
@@ -439,6 +672,36 @@ export default function ArticleMarkdownEditor({
 
   return (
     <div className="article-editor space-y-2">
+      <LinkDialog
+        open={linkDialogOpen}
+        setOpen={setLinkDialogOpen}
+        url={linkUrl}
+        setUrl={setLinkUrl}
+        text={linkText}
+        setText={setLinkText}
+        onSubmit={(url, text) => {
+          const trimmed = url.trim()
+          if (!trimmed) {
+            editor.chain().focus().unsetLink().run()
+            debugLog('link:unset')
+            return
+          }
+          const chain = editor.chain().focus()
+          if (editor.state.selection.empty) {
+            chain
+              .insertContent({
+                type: 'text',
+                text: text || trimmed,
+                marks: [{ type: 'link', attrs: { href: trimmed } }]
+              })
+              .run()
+            debugLog('link:insert', { url: trimmed, text: text || trimmed })
+            return
+          }
+          chain.extendMarkRange('link').setLink({ href: trimmed }).run()
+          debugLog('link:apply', { url: trimmed })
+        }}
+      />
       {!isTouchSmallScreen && (
         <div className="article-toolbar flex flex-wrap items-center gap-2">{toolbarBody}</div>
       )}
@@ -515,7 +778,7 @@ export default function ArticleMarkdownEditor({
 
                       const step = () => {
                         if (!el) return
-                        const next = el.scrollLeft - v * 16 // approx per-frame delta
+                        const next = el.scrollLeft - v * 16
                         el.scrollLeft = Math.min(maxScroll + 32, Math.max(-32, next))
                         updateScrollShadows()
                         const atBoundary = el.scrollLeft < 0 || el.scrollLeft > maxScroll
@@ -537,7 +800,6 @@ export default function ArticleMarkdownEditor({
                 >
                   {toolbarBody}
                 </div>
-                {/* Gradient cues for scrollability */}
                 <div
                   className={`pointer-events-none absolute inset-y-1 left-0 w-6 rounded-l-md bg-gradient-to-r from-background to-transparent transition-opacity duration-150 ${
                     scrollShadows.left && isFabOpen ? 'opacity-70' : 'opacity-0'
@@ -571,6 +833,14 @@ export default function ArticleMarkdownEditor({
       <EditorContent
         editor={editor}
         className="article-prose tiptap max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
+      />
+      <DebugConsole
+        enabled={debugEnabled}
+        setEnabled={setDebugEnabled}
+        open={debugPanelOpen}
+        setOpen={setDebugPanelOpen}
+        entries={debugEntries}
+        onClear={() => setDebugEntries([])}
       />
     </div>
   )
@@ -657,7 +927,6 @@ const ToolbarButton = React.forwardRef<
         isLast && 'rounded-r-md border-r-0'
       )}
       onMouseDown={(e) => {
-        // Prevent blur/keyboard dismissal when tapping toolbar buttons on touch devices
         e.preventDefault()
         e.stopPropagation()
       }}
@@ -667,11 +936,7 @@ const ToolbarButton = React.forwardRef<
         if (isTouchDevice() && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(50)
         }
-        // Keep editor focused so keyboard stays open
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ;(ref as any)?.current?.focus?.()
-        } catch {}
+        ;(ref as any)?.current?.focus?.()
         onClick()
       }}
     >
@@ -681,3 +946,280 @@ const ToolbarButton = React.forwardRef<
   )
 })
 ToolbarButton.displayName = 'ToolbarButton'
+
+const LinkPreviewNode = Node.create({
+  name: 'linkPreview',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      url: { default: '' }
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-link-preview]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', { ...HTMLAttributes, 'data-link-preview': 'true' }]
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(LinkPreviewView)
+  },
+  addStorage() {
+    return {
+      markdown: {
+        serialize: (state: any, node: any) => {
+          state.ensureNewLine()
+          state.write((node.attrs.url as string) ?? '')
+          state.closeBlock(node)
+        }
+      }
+    }
+  }
+})
+
+const MediaEmbedNode = Node.create({
+  name: 'mediaEmbed',
+  priority: 1000,
+  group: 'block',
+  atom: true,
+  draggable: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      src: { default: '' },
+      mediaType: { default: 'video' }
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-media-embed]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', { ...HTMLAttributes, 'data-media-embed': 'true' }]
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(MediaEmbedView)
+  },
+  addStorage() {
+    return {
+      markdown: {
+        serialize: (state: any, node: any) => {
+          state.ensureNewLine()
+          state.write((node.attrs.src as string) ?? '')
+          state.closeBlock(node)
+        }
+      }
+    }
+  }
+})
+
+function LinkDialog({
+  open,
+  setOpen,
+  url,
+  setUrl,
+  text,
+  setText,
+  onSubmit
+}: {
+  open: boolean
+  setOpen: (v: boolean) => void
+  url: string
+  setUrl: (v: string) => void
+  text: string
+  setText: (v: string) => void
+  onSubmit: (url: string, text: string) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Insert link</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="link-url">URL</Label>
+            <Input
+              id="link-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="link-text">Text (optional)</Label>
+            <Input
+              id="link-text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Link title"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            onClick={() => {
+              onSubmit(url, text)
+              setOpen(false)
+            }}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unknown) => void) {
+  const urlRegex = /^(https?:\/\/\S+)$/
+  const { state } = editor
+  let tr = state.tr
+  let changed = false
+  state.doc.descendants((node: any, pos: number) => {
+    if (node.type.name !== 'paragraph') return true
+    const text = node.textContent.trim()
+    if (!text || node.childCount !== 1 || !node.firstChild?.isText) return true
+    const match = urlRegex.exec(text)
+    if (!match) return true
+    const url = match[1]
+    const linkPreview = state.schema.nodes.linkPreview?.create({ url })
+    if (linkPreview) {
+      tr = tr.replaceWith(pos, pos + node.nodeSize, linkPreview)
+      changed = true
+      debugLog?.('convert:url->preview', { url })
+      return false
+    }
+    return true
+  })
+  if (changed) {
+    editor.view.dispatch(tr)
+  }
+}
+
+function insertUploadedMedia(editor: any, mimeType: string, url: string) {
+  const mediaType = detectMediaType(url, mimeType)
+  if (mediaType === 'image') {
+    editor.chain().focus().setImage({ src: url, alt: '' }).run()
+    return true
+  }
+  if (mediaType === 'video') {
+    editor
+      .chain()
+      .focus()
+      .insertContent({ type: 'mediaEmbed', attrs: { src: url, mediaType: 'video' } })
+      .run()
+    return true
+  }
+  return false
+}
+
+function detectMediaType(url: string, mimeType?: string) {
+  const type = mimeType || ''
+  if (type.startsWith('image/')) return 'image'
+  if (type.startsWith('video/')) return 'video'
+  if (/\.(png|jpe?g|gif|webp|avif)$/i.test(url)) return 'image'
+  if (/\.(mp4|mov|webm|mkv|avi)$/i.test(url)) return 'video'
+  return 'unknown'
+}
+
+function isYoutubeUrl(url: string) {
+  return /(youtube\.com|youtu\.be)/i.test(url)
+}
+
+function LinkPreviewView({ node }: any) {
+  const url = node.attrs.url as string
+  if (!url) return null
+  if (isYoutubeUrl(url)) {
+    return <YoutubeEmbeddedPlayer url={url} className="my-2" mustLoad />
+  }
+  return <WebPreview url={url} className="my-2" />
+}
+
+function MediaEmbedView({ node }: any) {
+  const url = node.attrs.src as string
+  if (!url) return null
+  return <VideoPlayer src={url} className="my-2" />
+}
+
+function DebugConsole({
+  enabled,
+  setEnabled,
+  open,
+  setOpen,
+  entries,
+  onClear
+}: {
+  enabled: boolean
+  setEnabled: (v: boolean) => void
+  open: boolean
+  setOpen: (v: boolean) => void
+  entries: { id: number; time: string; message: string; data?: unknown }[]
+  onClear: () => void
+}) {
+  return (
+    <div className="mt-2 text-xs">
+      <div className="flex items-center gap-2">
+        <Button
+          variant={enabled ? 'default' : 'outline'}
+          size="sm"
+          className="h-7"
+          onClick={() => {
+            const next = !enabled
+            setEnabled(next)
+            setOpen(next)
+          }}
+        >
+          {enabled ? 'Debug on' : 'Debug off'}
+        </Button>
+        {enabled && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => setOpen(!open)}
+            >
+              {open ? 'Hide log' : 'Show log'}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7" onClick={onClear}>
+              Clear
+            </Button>
+            <span className="text-muted-foreground">{entries.length} events</span>
+          </>
+        )}
+      </div>
+      {enabled && open && (
+        <div className="mt-2 max-h-52 overflow-auto rounded border bg-muted/30 p-2 space-y-1">
+          {entries.length === 0 && <div className="text-muted-foreground">No events yet</div>}
+          {entries.map((entry) => (
+            <div key={entry.id} className="break-words">
+              <span className="text-muted-foreground mr-1">{entry.time}</span>
+              <span className="font-semibold">{entry.message}</span>
+              {entry.data !== undefined && (
+                <pre className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-muted-foreground bg-background/70 rounded p-1 border">
+                  {JSON.stringify(entry.data, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function serializeDebug(data: unknown) {
+  if (data === undefined) return undefined
+  try {
+    return JSON.parse(JSON.stringify(data))
+  } catch (_e) {
+    try {
+      return String(data)
+    } catch {
+      return '[[unserializable]]'
+    }
+  }
+}

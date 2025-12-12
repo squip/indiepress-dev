@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PostRelaySelector from './PostRelaySelector'
 import { createLongFormDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
@@ -35,6 +34,7 @@ export default function ArticleContent({
   const [image, setImage] = useState('')
   const [hashtagsText, setHashtagsText] = useState('')
   const [content, setContent] = useState('')
+  const [editorJson, setEditorJson] = useState<any>(null)
   const [publishedAt, setPublishedAt] = useState<number | undefined>(undefined)
   const [posting, setPosting] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
@@ -44,7 +44,6 @@ export default function ArticleContent({
   const [uploadProgresses, setUploadProgresses] = useState<
     { file: File; progress: number; cancel: () => void }[]
   >([])
-  const [showPreview, setShowPreview] = useState(false)
 
   const cacheKey = useMemo(
     () => `article-editor:${existingEvent?.id ?? 'new'}`,
@@ -62,6 +61,7 @@ export default function ArticleContent({
         setImage(parsed.image ?? '')
         setHashtagsText(parsed.hashtagsText ?? '')
         setContent(parsed.content ?? '')
+        setEditorJson(parsed.editorJson ?? null)
         setPublishedAt(parsed.publishedAt ?? undefined)
         return
       } catch (e) {
@@ -98,6 +98,7 @@ export default function ArticleContent({
       image,
       hashtagsText,
       content,
+      editorJson,
       publishedAt
     }
     try {
@@ -159,7 +160,11 @@ export default function ArticleContent({
   const publishDraft = async (isDraft: boolean) => {
     await checkLogin(async () => {
       if (!canPublish) return
-      isDraft ? setSavingDraft(true) : setPosting(true)
+      if (isDraft) {
+        setSavingDraft(true)
+      } else {
+        setPosting(true)
+      }
       try {
         const draftEvent = buildDraft(isDraft)
         let newEvent
@@ -224,30 +229,11 @@ export default function ArticleContent({
   return (
     <div className="space-y-3 flex flex-col max-h-[calc(100vh-180px)] sm:max-h-none">
       <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
-        <Tabs
-          value={showPreview ? 'preview' : 'edit'}
-          onValueChange={(val) => setShowPreview(val === 'preview')}
-          className="w-fit"
-        >
-          <TabsList className="h-9 bg-muted rounded-md px-1">
-            <TabsTrigger
-              value="edit"
-              className="rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-            >
-              {t('Edit')}
-            </TabsTrigger>
-            <TabsTrigger
-              value="preview"
-              className="rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-            >
-              {t('Preview')}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
         <ArticleMarkdownEditor
           value={content}
           onChange={setContent}
-          showPreview={showPreview}
+          initialJson={editorJson}
+          onJsonChange={setEditorJson}
           mentions={mentions}
           setMentions={setMentions}
           onUploadStart={handleUploadStart}

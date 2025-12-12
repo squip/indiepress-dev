@@ -15,6 +15,7 @@ export interface ClipboardAndDropHandlerOptions {
   onUploadStart?: (file: File, cancel: () => void) => void
   onUploadEnd?: (file: File) => void
   onUploadProgress?: (file: File, progress: number) => void
+  onUploadSuccess?: (file: File, result: { url: string; tags: string[][] }) => boolean | void
 }
 
 export const ClipboardAndDropHandler = Extension.create<ClipboardAndDropHandlerOptions>({
@@ -143,6 +144,26 @@ async function uploadFiles(
       })
       .then((result) => {
         options.onUploadEnd?.(file)
+        const handled = options.onUploadSuccess?.(file, result)
+        if (handled === true) {
+          const trCleanup = view.state.tr
+          let didCleanup = false
+          view.state.doc.descendants((node, pos) => {
+            if (node.isText && node.text && node.text.includes(placeholder) && !didCleanup) {
+              const startPos = node.text.indexOf(placeholder)
+              const from = pos + startPos
+              const to = from + placeholder.length
+              trCleanup.delete(from, to)
+              didCleanup = true
+              return false
+            }
+            return true
+          })
+          if (didCleanup) {
+            view.dispatch(trCleanup)
+          }
+          return
+        }
         const urlNode = view.state.schema.text(result.url)
 
         const tr = view.state.tr
