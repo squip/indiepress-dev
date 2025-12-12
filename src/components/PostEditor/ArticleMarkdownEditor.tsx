@@ -50,10 +50,7 @@ import {
   Smile,
   Save,
   SquarePlus,
-  SquareX,
-  ListTodo,
-  IndentIncrease,
-  IndentDecrease
+  SquareX
 } from 'lucide-react'
 import Mention from './PostTextarea/Mention'
 import mentionSuggestion from './PostTextarea/Mention/suggestion'
@@ -198,6 +195,47 @@ export default function ArticleMarkdownEditor({
     []
   )
 
+  const MentionWithMarkdown = useMemo(
+    () =>
+      Mention.extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: (state: any, node: any) => {
+                // Render mention as its label or id as plain text for markdown output.
+                const text = (node?.attrs?.label as string) || (node?.attrs?.id as string) || ''
+                state.write(text)
+              },
+              parse: {
+                // no-op; mentions will come back as plain text unless a custom parser is added
+              }
+            }
+          }
+        }
+      }),
+    []
+  )
+
+  const EmojiWithMarkdown = useMemo(
+    () =>
+      Emoji.extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: (state: any, node: any) => {
+                const text = node?.attrs?.name || node?.text || ''
+                state.write(text)
+              },
+              parse: {
+                // no-op; emojis will round-trip as text
+              }
+            }
+          }
+        }
+      }),
+    []
+  )
+
   const editor = useEditor({
     content: initialJsonRef.current ?? (value || ''),
     extensions: [
@@ -229,7 +267,7 @@ export default function ArticleMarkdownEditor({
       }),
       TaskList,
       TaskItem.configure({
-        nested: true
+        nested: false
       }),
       ImageExtension.configure({
         inline: false,
@@ -238,10 +276,10 @@ export default function ArticleMarkdownEditor({
           class: 'rounded-md my-3 max-w-full'
         }
       }),
-      Mention.configure({
+      MentionWithMarkdown.configure({
         suggestion: mentionSuggestion
       }),
-      Emoji.configure({
+      EmojiWithMarkdown.configure({
         suggestion: emojiSuggestion
       }),
       ClipboardAndDropHandler.configure({
@@ -313,25 +351,19 @@ export default function ArticleMarkdownEditor({
         const isCode = editor?.isActive('codeBlock')
 
         if (event.key === 'Tab' && (isList || isCode)) {
+          if (isList) {
+            // Disable list indent/outdent behavior to keep lists single-level.
+            return false
+          }
           event.preventDefault()
           if (event.shiftKey) {
-            if (isList) {
-              const type = isTask ? 'taskItem' : 'listItem'
-              editor?.chain().focus().liftListItem(type as any).run()
-            } else if (isCode) {
-              editor?.chain().focus().command(({ tr }) => {
-                const { from, to } = tr.selection
-                tr.replaceRangeWith(from, Math.min(to, from + 4), editor.state.schema.text(''))
-                return true
-              }).run()
-            }
+            editor?.chain().focus().command(({ tr }) => {
+              const { from, to } = tr.selection
+              tr.replaceRangeWith(from, Math.min(to, from + 4), editor.state.schema.text(''))
+              return true
+            }).run()
           } else {
-            if (isList) {
-              const type = isTask ? 'taskItem' : 'listItem'
-              editor?.chain().focus().sinkListItem(type as any).run()
-            } else if (isCode) {
-              editor?.chain().focus().insertContent('    ').run()
-            }
+            editor?.chain().focus().insertContent('    ').run()
           }
           debugLog('keydown:tab', { shift: event.shiftKey, isList, isTask, isCode })
           return true
@@ -354,7 +386,6 @@ export default function ArticleMarkdownEditor({
       }
     },
     onUpdate: ({ editor }) => {
-      convertStandaloneUrls(editor, debugLog)
       const markdown = getMarkdown(editor as any)
       lastMarkdown.current = markdown
       onChange(markdown)
@@ -370,12 +401,15 @@ export default function ArticleMarkdownEditor({
     },
     onBlur() {
       setHasFocus(false)
+      convertStandaloneUrls(editor, debugLog)
       debugLog('blur')
     }
   })
 
   useEffect(() => {
     if (!editor) return
+    // Avoid resetting content while user is actively editing; only sync when not focused.
+    if (hasFocus) return
     const applyContent = (content: any) => {
       const run = () => {
         if (!editor) return
@@ -396,7 +430,7 @@ export default function ArticleMarkdownEditor({
     if (value === lastMarkdown.current) return
     applyContent(value || '')
     lastMarkdown.current = value
-  }, [value, initialJson, editor, getMarkdown])
+  }, [value, initialJson, editor, getMarkdown, hasFocus])
 
   useEffect(() => {
     const el = toolbarScrollRef.current
@@ -658,46 +692,6 @@ export default function ArticleMarkdownEditor({
             editor.chain().focus().toggleCodeBlock().run()
           }}
           active={editor.isActive('codeBlock')}
-          isLast
-          shouldIgnoreTap={() => skipToolbarTapRef.current}
-        />
-      </ToolbarGroup>
-      <ToolbarDivider />
-      <ToolbarGroup>
-        <ToolbarButton
-          icon={ListTodo}
-          label="Checkbox"
-          onClick={() => {
-            debugLog('toolbar:checkbox')
-            editor.chain().focus().toggleTaskList().run()
-          }}
-          active={editor.isActive('taskList')}
-          shouldIgnoreTap={() => skipToolbarTapRef.current}
-        />
-        <ToolbarButton
-          icon={IndentIncrease}
-          label="Indent"
-          onClick={() => {
-            if (editor.isActive('taskItem')) {
-              editor.chain().focus().sinkListItem('taskItem').run()
-            } else {
-              editor.chain().focus().sinkListItem('listItem').run()
-            }
-            debugLog('toolbar:indent', { activeTask: editor.isActive('taskItem') })
-          }}
-          shouldIgnoreTap={() => skipToolbarTapRef.current}
-        />
-        <ToolbarButton
-          icon={IndentDecrease}
-          label="Outdent"
-          onClick={() => {
-            if (editor.isActive('taskItem')) {
-              editor.chain().focus().liftListItem('taskItem').run()
-            } else {
-              editor.chain().focus().liftListItem('listItem').run()
-            }
-            debugLog('toolbar:outdent', { activeTask: editor.isActive('taskItem') })
-          }}
           isLast
           shouldIgnoreTap={() => skipToolbarTapRef.current}
         />
@@ -1141,6 +1135,7 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
   const { state } = editor
   let tr = state.tr
   let changed = false
+  const initialSelection = state.selection
   state.doc.descendants((node: any, pos: number) => {
     if (node.type.name !== 'paragraph') return true
     const text = node.textContent.trim()
@@ -1158,6 +1153,19 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
     return true
   })
   if (changed) {
+    // Preserve selection near the original position to avoid jumps.
+    const mappedFrom = tr.mapping.map(initialSelection.from)
+    const mappedTo = tr.mapping.map(initialSelection.to)
+    const safePos = Math.min(tr.doc.content.size, Math.max(0, mappedFrom))
+    try {
+      tr = tr.setSelection(editor.state.selection.constructor.create(tr.doc, safePos, mappedTo))
+    } catch (_e) {
+      try {
+        tr = tr.setSelection(editor.state.selection.constructor.near(tr.doc.resolve(safePos)))
+      } catch {
+        /* ignore */
+      }
+    }
     editor.view.dispatch(tr)
   }
 }
