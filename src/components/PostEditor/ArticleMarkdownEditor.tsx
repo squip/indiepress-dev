@@ -60,6 +60,8 @@ import { ClipboardAndDropHandler } from './PostTextarea/ClipboardAndDropHandler'
 import WebPreview from '../WebPreview'
 import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
 import VideoPlayer from '../VideoPlayer'
+import { useFetchWebMetadata } from '@/hooks/useFetchWebMetadata'
+import { Play } from 'lucide-react'
 import { DOMParser as PMDOMParser } from '@tiptap/pm/model'
 
 type ArticleMarkdownEditorProps = {
@@ -220,7 +222,9 @@ export default function ArticleMarkdownEditor({
     () =>
       Emoji.extend({
         addStorage() {
+          const parent = this.parent?.() ?? {}
           return {
+            ...parent,
             markdown: {
               serialize: (state: any, node: any) => {
                 const text = node?.attrs?.name || node?.text || ''
@@ -1218,13 +1222,29 @@ function isYoutubeUrl(url: string) {
   return /(youtube\.com|youtu\.be)/i.test(url)
 }
 
+function extractYoutubeId(url: string) {
+  try {
+    const u = new URL(url)
+    if (u.hostname.includes('youtu.be')) {
+      return u.pathname.replace('/', '')
+    }
+    if (u.searchParams.has('v')) {
+      return u.searchParams.get('v') || ''
+    }
+    const paths = u.pathname.split('/')
+    return paths.includes('embed') ? paths[paths.length - 1] : ''
+  } catch {
+    return ''
+  }
+}
+
 function LinkPreviewView({ node }: any) {
   const url = node.attrs.url as string
   if (!url) return null
   if (isYoutubeUrl(url)) {
     return (
       <NodeViewWrapper data-link-preview className="my-2">
-        <YoutubeEmbeddedPlayer url={url} className="my-2" mustLoad />
+        <YoutubeCard url={url} />
       </NodeViewWrapper>
     )
   }
@@ -1252,6 +1272,43 @@ function MediaEmbedView({ node }: any) {
     <NodeViewWrapper data-media-embed className="my-2">
       <VideoPlayer src={url} className="my-2" />
     </NodeViewWrapper>
+  )
+}
+
+function YoutubeCard({ url }: { url: string }) {
+  const { title, description, image } = useFetchWebMetadata(url)
+  const thumb =
+    image ||
+    (isYoutubeUrl(url)
+      ? `https://img.youtube.com/vi/${extractYoutubeId(url)}/hqdefault.jpg`
+      : undefined)
+  const [expanded, setExpanded] = useState(false)
+
+  if (expanded) {
+    return <YoutubeEmbeddedPlayer url={url} className="my-2" mustLoad />
+  }
+
+  return (
+    <button
+      type="button"
+      className="youtube-card"
+      onClick={(e) => {
+        e.stopPropagation()
+        setExpanded(true)
+      }}
+    >
+      <div className="youtube-card__thumb">
+        {thumb && <img src={thumb} alt={title || 'YouTube preview'} />}
+        <div className="youtube-card__play">
+          <Play className="h-6 w-6" />
+        </div>
+      </div>
+      <div className="youtube-card__body">
+        <div className="youtube-card__host">youtube.com</div>
+        <div className="youtube-card__title">{title || url}</div>
+        {description && <div className="youtube-card__desc">{description}</div>}
+      </div>
+    </button>
   )
 }
 
