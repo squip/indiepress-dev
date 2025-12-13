@@ -1117,39 +1117,44 @@ const ParagraphHighlight = Node.create({
 
 const ImageNode = ImageExtension.extend({
   addNodeView() {
-    return ({ node, getPos, editor, deleteNode }) => {
-      const src = node.attrs.src as string
-      const alt = node.attrs.alt as string
-      return (
-        <NodeViewWrapper
-          as="div"
-          className="my-3"
-          data-image-node
-          onClick={(e) => {
-            e.stopPropagation()
-            if (typeof getPos === 'function') {
-              editor?.commands.setNodeSelection(getPos())
-            }
-          }}
-        >
-          <div className="flex justify-end">
-            <button
-              type="button"
-              className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
-              onClick={(e) => {
-                e.stopPropagation()
-                deleteNode?.()
-              }}
-            >
-              ×
-            </button>
-          </div>
-          <img src={src} alt={alt} className="rounded-md max-w-full" />
-        </NodeViewWrapper>
-      )
-    }
+    return ReactNodeViewRenderer(ImageView)
   }
 })
+
+function ImageView({ node, getPos, editor, deleteNode }: any) {
+  const src = node?.attrs?.src as string
+  const alt = node?.attrs?.alt as string
+  const title = node?.attrs?.title as string
+  const imgClass = 'rounded-md my-3 max-w-full'
+
+  return (
+    <NodeViewWrapper
+      as="div"
+      className="my-3"
+      data-image-node
+      onClick={(e) => {
+        e.stopPropagation()
+        if (typeof getPos === 'function') {
+          editor?.commands.setNodeSelection(getPos())
+        }
+      }}
+    >
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <img src={src} alt={alt} title={title} className={imgClass} />
+    </NodeViewWrapper>
+  )
+}
 
 function LinkDialog({
   open,
