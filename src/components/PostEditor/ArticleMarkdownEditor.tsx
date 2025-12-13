@@ -44,7 +44,7 @@ import {
   Bold,
   Code,
   CodeXml,
-  Image as ImageIcon,
+  ImageUp as ImageIcon,
   Italic,
   Link as LinkIcon,
   List,
