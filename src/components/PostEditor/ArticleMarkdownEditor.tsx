@@ -66,6 +66,8 @@ import mentionSuggestion from './PostTextarea/Mention/suggestion'
 import Emoji from './PostTextarea/Emoji'
 import emojiSuggestion from './PostTextarea/Emoji/suggestion'
 import { ClipboardAndDropHandler } from './PostTextarea/ClipboardAndDropHandler'
+import { createLongFormDraftEvent } from '@/lib/draft-event'
+import { randomString } from '@/lib/random'
 import WebPreview from '../WebPreview'
 import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
 import VideoPlayer from '../VideoPlayer'
@@ -74,6 +76,7 @@ import { Play } from 'lucide-react'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { Plugin } from '@tiptap/pm/state'
 import { DOMParser as PMDOMParser } from '@tiptap/pm/model'
+import { useNostr } from '@/providers/NostrProvider'
 
 type ArticleMarkdownEditorProps = {
   value: string
@@ -139,6 +142,7 @@ export default function ArticleMarkdownEditor({
   const metadataModeRef = useRef<MetadataControlsMode>('hidden')
   const [metadataMode, setMetadataMode] = useState<MetadataControlsMode>('hidden')
   const metadataDismissedRef = useRef(false)
+  const [metadataSnapshot, setMetadataSnapshot] = useState<MetadataSnapshot | null>(null)
   const [hasFocus, setHasFocus] = useState(false)
   const [keyboardOffset, setKeyboardOffset] = useState(0)
   const [isFabOpen, setIsFabOpen] = useState(false)
@@ -159,6 +163,7 @@ export default function ArticleMarkdownEditor({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('https://')
   const [linkText, setLinkText] = useState('')
+  const { signEvent } = useNostr()
   const [debugEnabled, setDebugEnabled] = useState(() => {
     if (typeof window === 'undefined') return false
     const stored = localStorage.getItem('article-editor-debug')
@@ -303,6 +308,7 @@ export default function ArticleMarkdownEditor({
       if (snapshot.hasMetadataBlock) {
         metadataDismissedRef.current = false
       }
+      setMetadataSnapshot(snapshot)
       onMetadataChange?.(snapshot)
       debugLog('metadata:snapshot', { reason, ...snapshot })
       return snapshot
@@ -337,6 +343,38 @@ export default function ArticleMarkdownEditor({
     },
     [debugLog]
   )
+
+  const simulateArticleEvent = useCallback(async () => {
+    const dismissed = metadataSnapshot?.dismissed
+    const draft = createLongFormDraftEvent(
+      {
+        title: dismissed ? undefined : metadataSnapshot?.title,
+        content: value,
+        summary: dismissed ? undefined : metadataSnapshot?.summary,
+        image: dismissed ? undefined : metadataSnapshot?.image,
+        identifier: metadataSnapshot?.metadataId ?? randomString(12),
+        hashtags: [],
+        publishedAt: Math.floor(Date.now() / 1000)
+      },
+      { isDraft: false }
+    )
+    let signed: any = null
+    let error: any = null
+    if (signEvent) {
+      try {
+        signed = await signEvent(draft)
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err)
+      }
+    } else {
+      error = 'signEvent unavailable (not logged in?)'
+    }
+    debugLog('debug:simulate-30023', {
+      draft,
+      signed: signed ?? null,
+      error
+    })
+  }, [metadataSnapshot, value, signEvent, debugLog])
 
   const editor = useEditor({
     content: initialJsonRef.current ?? (value || ''),
@@ -1165,6 +1203,7 @@ export default function ArticleMarkdownEditor({
         setOpen={setDebugPanelOpen}
         entries={debugEntries}
         onClear={() => setDebugEntries([])}
+        onSimulateEvent={simulateArticleEvent}
       />
     </div>
   )
@@ -1982,7 +2021,8 @@ function DebugConsole({
   open,
   setOpen,
   entries,
-  onClear
+  onClear,
+  onSimulateEvent
 }: {
   enabled: boolean
   setEnabled: (v: boolean) => void
@@ -1990,6 +2030,7 @@ function DebugConsole({
   setOpen: (v: boolean) => void
   entries: { id: string; time: string; message: string; data?: unknown }[]
   onClear: () => void
+  onSimulateEvent?: () => void
 }) {
   return (
     <div className="mt-2 text-xs">
@@ -2019,6 +2060,16 @@ function DebugConsole({
             <Button variant="ghost" size="sm" className="h-7" onClick={onClear}>
               Clear
             </Button>
+            {onSimulateEvent && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                onClick={() => onSimulateEvent()}
+              >
+                Simulate 30023
+              </Button>
+            )}
             <span className="text-muted-foreground">{entries.length} events</span>
           </>
         )}
