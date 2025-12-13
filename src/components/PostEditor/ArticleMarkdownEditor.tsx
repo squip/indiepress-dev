@@ -745,7 +745,7 @@ export default function ArticleMarkdownEditor({
             return
           }
           editor.commands.focus()
-          const { state, view } = editor
+          const { state } = editor
           const stored = linkSelectionRef.current
           const from = stored?.from ?? state.selection.from
           const to = stored?.to ?? state.selection.to
@@ -1132,7 +1132,7 @@ function ImageView({ node, getPos, editor, deleteNode }: any) {
       as="div"
       className="my-3"
       data-image-node
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent) => {
         e.stopPropagation()
         if (typeof getPos === 'function') {
           editor?.commands.setNodeSelection(getPos())
@@ -1143,7 +1143,7 @@ function ImageView({ node, getPos, editor, deleteNode }: any) {
         <button
           type="button"
           className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
-          onClick={(e) => {
+          onClick={(e: React.MouseEvent) => {
             e.stopPropagation()
             deleteNode?.()
           }}
@@ -1319,7 +1319,7 @@ function extractYoutubeId(url: string) {
 }
 
 function LinkPreviewView(props: any) {
-  const { node, getPos, editor, deleteNode } = props
+  const { node, getPos, editor } = props
   const url = node.attrs.url as string
   if (!url) return null
   if (isYoutubeUrl(url)) {
@@ -1327,7 +1327,7 @@ function LinkPreviewView(props: any) {
       <NodeViewWrapper
         data-link-preview
         className="my-2"
-        onClick={(e) => {
+        onClick={(e: React.MouseEvent) => {
           e.stopPropagation()
           if (typeof getPos === 'function') {
             editor?.commands.setNodeSelection(getPos())
@@ -1338,7 +1338,7 @@ function LinkPreviewView(props: any) {
           <button
             type="button"
             className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
-            onClick={(e) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation()
               ;(props as any)?.deleteNode?.()
             }}
@@ -1354,30 +1354,30 @@ function LinkPreviewView(props: any) {
     <NodeViewWrapper
       data-link-preview
       className="my-2"
-        onClick={(e) => {
-          e.stopPropagation()
-          if (typeof getPos === 'function') {
-            editor?.commands.setNodeSelection(getPos())
-          }
-        }}
-      >
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
-            onClick={(e) => {
-              e.stopPropagation()
-              ;(props as any)?.deleteNode?.()
-            }}
-          >
-            ×
-          </button>
-        </div>
-        <div className="space-y-2">
-          <WebPreview url={url} className="my-2" showFallback={false} />
-          <a
-            href={url}
-            target="_blank"
+      onClick={(e: React.MouseEvent) => {
+        e.stopPropagation()
+        if (typeof getPos === 'function') {
+          editor?.commands.setNodeSelection(getPos())
+        }
+      }}
+    >
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation()
+            ;(props as any)?.deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <div className="space-y-2">
+        <WebPreview url={url} className="my-2" showFallback={false} />
+        <a
+          href={url}
+          target="_blank"
           rel="noopener noreferrer nofollow"
           className="text-primary underline break-words"
         >
@@ -1396,7 +1396,7 @@ function MediaEmbedView(props: any) {
     <NodeViewWrapper
       data-media-embed
       className="my-2"
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent) => {
         e.stopPropagation()
         if (typeof getPos === 'function') {
           editor?.commands.setNodeSelection(getPos())
