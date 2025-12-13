@@ -233,7 +233,7 @@
 
 .article-editor .article-editor__content:focus {
   outline: none;
-  box-shadow: 0 0 0 1px hsl(var(--ring));
+  box-shadow: none;
 }
 
 .article-editor .article-editor__content h1,
