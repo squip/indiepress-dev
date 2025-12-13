@@ -7,8 +7,16 @@ import React, {
   useState
 } from 'react'
 import { Node } from '@tiptap/core'
-import { EditorContent, ReactNodeViewRenderer, useEditor, NodeViewWrapper } from '@tiptap/react'
+import {
+  EditorContent,
+  NodeViewContent,
+  ReactNodeViewRenderer,
+  useEditor,
+  NodeViewWrapper
+} from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import Heading, { type Level } from '@tiptap/extension-heading'
+import Blockquote from '@tiptap/extension-blockquote'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import ImageExtension from '@tiptap/extension-image'
@@ -50,7 +58,8 @@ import {
   Smile,
   Save,
   SquarePlus,
-  SquareX
+  SquareX,
+  Upload
 } from 'lucide-react'
 import Mention from './PostTextarea/Mention'
 import mentionSuggestion from './PostTextarea/Mention/suggestion'
@@ -71,6 +80,7 @@ type ArticleMarkdownEditorProps = {
   onChange: (next: string) => void
   initialJson?: any
   onJsonChange?: (json: any) => void
+  onMetadataChange?: (meta: MetadataSnapshot) => void
   mentions?: string[]
   setMentions?: (m: string[]) => void
   onEmojiSelect?: (emoji: any) => void
@@ -79,13 +89,36 @@ type ArticleMarkdownEditorProps = {
   onUploadProgress?: (file: File, progress: number) => void
   onUploadSuccess?: ({ url, tags }: { url: string; tags: string[][] }) => void
   onSaveDraft?: () => void
+  shouldInsertTemplate?: boolean
 }
+
+type MetadataControlsMode = 'hidden' | 'group' | 'field'
+type MetadataRole = 'title' | 'summary' | 'cover'
+
+export type MetadataSnapshot = {
+  title?: string
+  summary?: string
+  image?: string
+  metadataId?: string | null
+  hasMetadataBlock: boolean
+  dismissed: boolean
+  isTemplatePristine: boolean
+}
+
+type MetadataControls = {
+  getMode: () => MetadataControlsMode
+  onGroupRemove: (metadataId?: string | null) => void
+}
+
+const METADATA_TITLE_PLACEHOLDER = 'Add a title'
+const METADATA_SUMMARY_PLACEHOLDER = 'Add a summary ...'
 
 export default function ArticleMarkdownEditor({
   value,
   onChange,
   initialJson,
   onJsonChange,
+  onMetadataChange,
   mentions,
   setMentions,
   onEmojiSelect,
@@ -93,10 +126,19 @@ export default function ArticleMarkdownEditor({
   onUploadEnd,
   onUploadProgress,
   onUploadSuccess,
-  onSaveDraft
+  onSaveDraft,
+  shouldInsertTemplate
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
   const initialJsonRef = useRef<any>(initialJson)
+  const templateInsertedRef = useRef(false)
+  const metadataControlsRef = useRef<MetadataControls>({
+    getMode: () => 'hidden',
+    onGroupRemove: () => {}
+  })
+  const metadataModeRef = useRef<MetadataControlsMode>('hidden')
+  const [metadataMode, setMetadataMode] = useState<MetadataControlsMode>('hidden')
+  const metadataDismissedRef = useRef(false)
   const [hasFocus, setHasFocus] = useState(false)
   const [keyboardOffset, setKeyboardOffset] = useState(0)
   const [isFabOpen, setIsFabOpen] = useState(false)
@@ -242,12 +284,69 @@ export default function ArticleMarkdownEditor({
     []
   )
 
+  const metadataHeadingExtension = useMemo(
+    () => createMetadataHeadingExtension(metadataControlsRef),
+    []
+  )
+  const metadataBlockquoteExtension = useMemo(
+    () => createMetadataBlockquoteExtension(metadataControlsRef),
+    []
+  )
+  const coverPlaceholderExtension = useMemo(
+    () => createCoverPlaceholderNode(metadataControlsRef),
+    []
+  )
+
+  const notifyMetadataChange = useCallback(
+    (doc: any, reason?: string) => {
+      const snapshot = extractMetadataFromDoc(doc, metadataDismissedRef.current)
+      if (snapshot.hasMetadataBlock) {
+        metadataDismissedRef.current = false
+      }
+      onMetadataChange?.(snapshot)
+      debugLog('metadata:snapshot', { reason, ...snapshot })
+      return snapshot
+    },
+    [onMetadataChange, debugLog]
+  )
+
+  const recomputeMetadataUi = useCallback(
+    (state: any, reason?: string, options?: { forceGroup?: boolean }) => {
+      if (!state?.doc) return metadataModeRef.current
+      const hasMetadata = hasMetadataBlock(state.doc)
+      const selectionInside =
+        !options?.forceGroup && hasMetadata && isSelectionInsideMetadata(state.doc, state.selection)
+      const nextMode: MetadataControlsMode = !hasMetadata
+        ? 'hidden'
+        : selectionInside
+          ? 'field'
+          : 'group'
+      if (metadataModeRef.current !== nextMode) {
+        debugLog('metadata:ui', {
+          reason,
+          previous: metadataModeRef.current,
+          next: nextMode,
+          hasMetadata,
+          selectionInside
+        })
+      }
+      metadataModeRef.current = nextMode
+      setMetadataMode(nextMode)
+      metadataControlsRef.current.getMode = () => nextMode
+      return nextMode
+    },
+    [debugLog]
+  )
+
   const editor = useEditor({
     content: initialJsonRef.current ?? (value || ''),
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] }
+        heading: false,
+        blockquote: false
       }),
+      metadataHeadingExtension,
+      metadataBlockquoteExtension,
       Underline.extend({
         addStorage() {
           return {
@@ -282,6 +381,7 @@ export default function ArticleMarkdownEditor({
           class: 'rounded-md my-3 max-w-full'
         }
       }),
+      coverPlaceholderExtension,
       MentionWithMarkdown.configure({
         suggestion: mentionSuggestion
       }),
@@ -397,30 +497,81 @@ export default function ArticleMarkdownEditor({
       lastMarkdown.current = markdown
       onChange(markdown)
       onJsonChange?.(editor.getJSON())
+      recomputeMetadataUi(editor.state, 'onUpdate')
+      notifyMetadataChange(editor.state.doc, 'onUpdate')
       debugLog('update', {
         markdownLength: markdown?.length ?? 0,
         selection: editor.state.selection?.toJSON?.()
       })
     },
+    onSelectionUpdate: ({ editor }) => {
+      recomputeMetadataUi(editor.state, 'selection')
+    },
     onFocus() {
       setHasFocus(true)
+      recomputeMetadataUi(editor?.state, 'focus')
       debugLog('focus')
     },
     onBlur() {
       setHasFocus(false)
       convertStandaloneUrls(editor, debugLog)
+      recomputeMetadataUi(editor?.state, 'blur', { forceGroup: true })
       debugLog('blur')
     }
   })
 
+  const removeMetadataGroup = useCallback(
+    (metadataId?: string | null) => {
+      if (!editor) return
+      const range = getMetadataRange(editor.state.doc, metadataId)
+      if (!range) return
+      metadataDismissedRef.current = true
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.deleteRange(range.from, range.to)
+          return true
+        })
+        .run()
+      notifyMetadataChange(editor.state.doc, 'group-remove')
+      recomputeMetadataUi(editor.state, 'group-remove')
+    },
+    [editor, notifyMetadataChange, recomputeMetadataUi]
+  )
+
   useEffect(() => {
     if (!editor) return
-    // Avoid resetting content while user is actively editing; only sync when not focused.
-    if (hasFocus) return
-    const applyContent = (content: any) => {
+    metadataControlsRef.current.onGroupRemove = removeMetadataGroup
+  }, [editor, removeMetadataGroup])
+
+  useEffect(() => {
+    if (!editor) return
+    recomputeMetadataUi(editor.state, 'init')
+    notifyMetadataChange(editor.state.doc, 'init')
+  }, [editor, notifyMetadataChange, recomputeMetadataUi])
+
+  useEffect(() => {
+    if (!editor) return
+
+    const applyContent = (content: any, reason: string) => {
+      debugLog('content:apply', {
+        reason,
+        hasFocus,
+        shouldInsertTemplate: Boolean(shouldInsertTemplate),
+        templateInserted: templateInsertedRef.current,
+        valueLength: value?.length ?? 0,
+        lastMarkdownLength: lastMarkdown.current?.length ?? 0,
+        initialJsonProvided: Boolean(initialJson),
+        initialJsonMatchesRef: initialJson === initialJsonRef.current,
+        contentSummary: summarizeContent(content),
+        contentEmpty: isContentEmpty(content)
+      })
       const run = () => {
         if (!editor) return
         editor.commands.setContent(content)
+        recomputeMetadataUi(editor.state, `after-apply:${reason}`)
+        notifyMetadataChange(editor.state.doc, `after-apply:${reason}`)
       }
       if (typeof queueMicrotask === 'function') {
         queueMicrotask(run)
@@ -428,16 +579,107 @@ export default function ArticleMarkdownEditor({
         Promise.resolve().then(run)
       }
     }
-    if (initialJson && initialJson !== initialJsonRef.current) {
+
+    const initialJsonProvided = !isContentEmpty(initialJson)
+
+    // Insert default template when empty and requested
+    if (shouldInsertTemplate && !templateInsertedRef.current) {
+      const currentText = editor.state.doc.textContent?.trim() ?? ''
+      debugLog('template:check', {
+        currentText,
+        childCount: editor.state.doc.childCount,
+        valueLength: value?.length ?? 0,
+        lastMarkdownLength: lastMarkdown.current?.length ?? 0,
+        initialJsonProvided: Boolean(initialJson)
+      })
+      if (!currentText && editor.state.doc.childCount <= 1) {
+        debugLog('template:insert')
+        const metadataId = generateMetadataId()
+        editor
+          .chain()
+          .clearContent()
+          .insertContent(getTemplateContent(metadataId))
+          .setTextSelection(1)
+          .run()
+        templateInsertedRef.current = true
+        metadataDismissedRef.current = false
+        const nextMarkdown = getMarkdown(editor as any)
+        lastMarkdown.current = nextMarkdown
+        if (nextMarkdown !== value) {
+          onChange(nextMarkdown)
+        }
+        notifyMetadataChange(editor.state.doc, 'template-inserted')
+        return
+      }
+    }
+
+    // Avoid resetting content while user is actively editing; only sync when not focused.
+    if (hasFocus) {
+      debugLog('content:skip', { reason: 'has-focus', valueLength: value?.length ?? 0 })
+      return
+    }
+
+    // If the incoming value matches last known markdown, no-op to avoid overwriting template/custom nodes.
+    if (value === lastMarkdown.current) {
+      debugLog('content:skip', { reason: 'value-matches-last' })
+      return
+    }
+
+    // If a template was inserted, wait for upstream state to catch up before applying stale content.
+    if (
+      shouldInsertTemplate &&
+      templateInsertedRef.current &&
+      value !== lastMarkdown.current &&
+      !initialJson
+    ) {
+      debugLog('content:skip', {
+        reason: 'template-awaiting-sync',
+        valueLength: value?.length ?? 0,
+        lastMarkdownLength: lastMarkdown.current?.length ?? 0
+      })
+      return
+    }
+
+    const initialJsonEmpty = isContentEmpty(initialJson)
+
+    if (templateInsertedRef.current && (initialJsonEmpty || !initialJsonProvided)) {
+      debugLog('content:skip', {
+        reason: 'initial-json-empty-after-template',
+        initialJsonProvided,
+        initialJsonMatchesRef: initialJson === initialJsonRef.current,
+        initialJsonSummary: summarizeContent(initialJson)
+      })
+    } else if (initialJsonProvided && initialJson !== initialJsonRef.current) {
       initialJsonRef.current = initialJson
-      applyContent(initialJson)
+      applyContent(initialJson, 'initial-json')
       lastMarkdown.current = getMarkdown(editor as any)
       return
     }
-    if (value === lastMarkdown.current) return
-    applyContent(value || '')
-    lastMarkdown.current = value
-  }, [value, initialJson, editor, getMarkdown, hasFocus])
+
+    if (value === lastMarkdown.current) {
+      debugLog('content:skip', { reason: 'value-matches-last-after-json' })
+      return
+    }
+
+    if (templateInsertedRef.current && isContentEmpty(value)) {
+      debugLog('content:skip', {
+        reason: 'value-empty-after-template',
+        valueLength: value?.length ?? 0
+      })
+    } else {
+      applyContent(value || '', 'value-change')
+      lastMarkdown.current = value
+    }
+  }, [
+    value,
+    initialJson,
+    editor,
+    getMarkdown,
+    hasFocus,
+    shouldInsertTemplate,
+    debugLog,
+    notifyMetadataChange
+  ])
 
   useEffect(() => {
     const el = toolbarScrollRef.current
@@ -901,6 +1143,7 @@ export default function ArticleMarkdownEditor({
         )}
       <EditorContent
         editor={editor}
+        data-metadata-mode={metadataMode}
         className="article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
       />
       <DebugConsole
@@ -1115,6 +1358,94 @@ const ParagraphHighlight = Node.create({
   }
 })
 
+function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<MetadataControls>) {
+  return Heading.extend({
+    addOptions() {
+      return {
+        ...this.parent?.(),
+        levels: [1, 2, 3, 4] as Level[]
+      }
+    },
+    addAttributes() {
+      return {
+        ...(this.parent?.() ?? {}),
+        metadata: { default: false },
+        metadataId: { default: null },
+        metadataRole: { default: null },
+        isPlaceholder: { default: false }
+      }
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer((props) => (
+        <MetadataHeadingView {...props} controlsRef={controlsRef} />
+      ))
+    }
+  })
+}
+
+function createMetadataBlockquoteExtension(
+  controlsRef: React.MutableRefObject<MetadataControls>
+) {
+  return Blockquote.extend({
+    addAttributes() {
+      return {
+        ...(this.parent?.() ?? {}),
+        metadata: { default: false },
+        metadataId: { default: null },
+        metadataRole: { default: null },
+        isPlaceholder: { default: false }
+      }
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer((props) => (
+        <MetadataSummaryView {...props} controlsRef={controlsRef} />
+      ))
+    }
+  })
+}
+
+function createCoverPlaceholderNode(controlsRef: React.MutableRefObject<MetadataControls>) {
+  return Node.create({
+    name: 'coverPlaceholder',
+    group: 'block',
+    atom: true,
+    draggable: false,
+    selectable: true,
+    addAttributes() {
+      return {
+        src: { default: null },
+        isTemplate: { default: true },
+        metadata: { default: false },
+        metadataId: { default: null },
+        metadataRole: { default: null }
+      }
+    },
+    parseHTML() {
+      return [{ tag: 'div[data-cover-placeholder]' }]
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ['div', { ...HTMLAttributes, 'data-cover-placeholder': 'true' }]
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer((props) => (
+        <CoverPlaceholderView {...props} controlsRef={controlsRef} />
+      ))
+    },
+    addStorage() {
+      return {
+        markdown: {
+          serialize: (state: any, node: any) => {
+            state.ensureNewLine()
+            const src = node.attrs.src as string | null
+            if (src) state.write(src)
+            state.closeBlock(node)
+          }
+        }
+      }
+    }
+  })
+}
+
 const ImageNode = ImageExtension.extend({
   addNodeView() {
     return ReactNodeViewRenderer(ImageView)
@@ -1254,6 +1585,36 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
   }
 }
 
+function getTemplateContent(metadataId: string) {
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'heading',
+        attrs: {
+          level: 1,
+          metadata: true,
+          metadataId,
+          metadataRole: 'title',
+          isPlaceholder: true
+        },
+        content: [{ type: 'text', text: METADATA_TITLE_PLACEHOLDER }]
+      },
+      {
+        type: 'blockquote',
+        attrs: { metadata: true, metadataId, metadataRole: 'summary', isPlaceholder: true },
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: METADATA_SUMMARY_PLACEHOLDER }] }
+        ]
+      },
+      {
+        type: 'coverPlaceholder',
+        attrs: { src: null, isTemplate: true, metadata: true, metadataId, metadataRole: 'cover' }
+      }
+    ]
+  }
+}
+
 function parseMarkdownToSlice(editor: any, text: string, debugLog?: (msg: string, data?: unknown) => void) {
   if (!text?.length) return null
   const parser = (editor as any)?.storage?.markdown?.parser
@@ -1296,6 +1657,147 @@ function detectMediaType(url: string, mimeType?: string) {
   if (/\.(png|jpe?g|gif|webp|avif)$/i.test(url)) return 'image'
   if (/\.(mp4|mov|webm|mkv|avi)$/i.test(url)) return 'video'
   return 'unknown'
+}
+
+function hasMetadataBlock(doc: any) {
+  let found = false
+  doc?.descendants?.((node: any) => {
+    if (node?.attrs?.metadata) {
+      found = true
+      return false
+    }
+    return
+  })
+  return found
+}
+
+function getMetadataRange(doc: any, metadataId?: string | null) {
+  let min = Number.POSITIVE_INFINITY
+  let max = -1
+  let resolvedId: string | null = metadataId ?? null
+  doc?.descendants?.((node: any, pos: number) => {
+    if (!node?.attrs?.metadata) return
+    if (metadataId && node?.attrs?.metadataId && node.attrs.metadataId !== metadataId) return
+    min = Math.min(min, pos)
+    max = Math.max(max, pos + node.nodeSize)
+    if (!resolvedId && node?.attrs?.metadataId) {
+      resolvedId = node.attrs.metadataId
+    }
+  })
+  if (min === Number.POSITIVE_INFINITY || max === -1) return null
+  return { from: min, to: max, metadataId: resolvedId }
+}
+
+function isSelectionInsideMetadata(doc: any, selection: any, metadataId?: string | null) {
+  const range = getMetadataRange(doc, metadataId)
+  if (!range || !selection) return false
+  const from = (selection?.from as number) ?? 0
+  const to = (selection?.to as number) ?? from
+  return from >= range.from && to <= range.to
+}
+
+function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
+  const snapshot: MetadataSnapshot = {
+    title: undefined,
+    summary: undefined,
+    image: undefined,
+    metadataId: null,
+    hasMetadataBlock: false,
+    dismissed,
+    isTemplatePristine: false
+  }
+  let nonMetadataContent = false
+  doc?.descendants?.((node: any) => {
+    const isMetadata = Boolean(node?.attrs?.metadata)
+    if (isMetadata) {
+      snapshot.hasMetadataBlock = true
+      snapshot.metadataId = snapshot.metadataId ?? node?.attrs?.metadataId ?? null
+      const role = node?.attrs?.metadataRole as MetadataRole | undefined
+      if (role === 'title') {
+        const text = (node.textContent || '').trim()
+        const isPlaceholder =
+          node.attrs.isPlaceholder || text === METADATA_TITLE_PLACEHOLDER
+        if (text && !isPlaceholder) {
+          snapshot.title = text
+        }
+      } else if (role === 'summary') {
+        const text = (node.textContent || '').trim()
+        const isPlaceholder =
+          node.attrs.isPlaceholder || text === METADATA_SUMMARY_PLACEHOLDER
+        if (text && !isPlaceholder) {
+          snapshot.summary = text
+        }
+      } else if (role === 'cover') {
+        const src = node?.attrs?.src as string | null
+        if (src) {
+          snapshot.image = src
+        }
+      }
+      return false
+    }
+    if (node.type?.name === 'doc') return
+    if (node.type?.name === 'paragraph' && !node.textContent?.trim()) return
+    if (node.textContent?.trim() || node.type?.name !== 'paragraph') {
+      nonMetadataContent = true
+    }
+    return
+  })
+  if (snapshot.hasMetadataBlock) {
+    snapshot.dismissed = false
+  }
+  snapshot.isTemplatePristine =
+    snapshot.hasMetadataBlock &&
+    !snapshot.title &&
+    !snapshot.summary &&
+    !snapshot.image &&
+    !nonMetadataContent
+  return snapshot
+}
+
+function isContentEmpty(content: any) {
+  if (content === null || content === undefined) return true
+  if (typeof content === 'string') {
+    return content.trim().length === 0
+  }
+  if (typeof content === 'object') {
+    if (content.type === 'doc' && Array.isArray(content.content)) {
+      if (content.content.length === 0) return true
+      // Treat a single empty paragraph or hardBreak-only paragraph as empty.
+      if (content.content.length === 1) {
+        const node = content.content[0]
+        const isParagraph = node?.type === 'paragraph'
+        const isEmptyParagraph =
+          isParagraph &&
+          (!node.content ||
+            node.content.length === 0 ||
+            (node.content.length === 1 &&
+              node.content[0]?.type === 'text' &&
+              !(node.content[0]?.text || '').trim()))
+        if (isEmptyParagraph) return true
+      }
+    }
+  }
+  return false
+}
+
+function summarizeContent(content: any) {
+  if (content === null) return 'null'
+  if (content === undefined) return 'undefined'
+  if (typeof content === 'string') {
+    return `string(len=${content.length})`
+  }
+  if (typeof content === 'object') {
+    const type = (content as any)?.type
+    const childCount = Array.isArray((content as any)?.content)
+      ? (content as any).content.length
+      : 'n/a'
+    return `object(type=${type ?? 'unknown'}, children=${childCount})`
+  }
+  return typeof content
+}
+
+function generateMetadataId() {
+  return `meta-${Math.random().toString(36).slice(2)}-${Date.now()}`
 }
 
 function isYoutubeUrl(url: string) {
@@ -1420,7 +1922,7 @@ function MediaEmbedView(props: any) {
   )
 }
 
-function YoutubeCard({ url }: { url: string }) {
+  function YoutubeCard({ url }: { url: string }) {
   const { title, description, image } = useFetchWebMetadata(url)
   const thumb =
     image ||
@@ -1535,4 +2037,242 @@ function serializeDebug(data: unknown) {
       return '[[unserializable]]'
     }
   }
+}
+
+function useMetadataRerender(editor: any) {
+  const [, force] = useState(0)
+  useEffect(() => {
+    if (!editor) return
+    const rerender = () => force((v) => v + 1)
+    editor.on('selectionUpdate', rerender)
+    editor.on('focus', rerender)
+    editor.on('blur', rerender)
+    editor.on('update', rerender)
+    return () => {
+      editor.off?.('selectionUpdate', rerender)
+      editor.off?.('focus', rerender)
+      editor.off?.('blur', rerender)
+      editor.off?.('update', rerender)
+    }
+  }, [editor])
+}
+
+function MetadataHeadingView(props: any) {
+  const { node, getPos, editor, deleteNode, updateAttributes, controlsRef } = props
+  useMetadataRerender(editor)
+  const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
+  const metadataId = node?.attrs?.metadataId
+  const isPlaceholder = node?.attrs?.isPlaceholder
+  const showGroupDelete = mode === 'group'
+  const showFieldDelete = mode === 'field'
+  const text = node?.textContent ?? ''
+
+  const clearPlaceholder = () => {
+    if (!isPlaceholder || typeof getPos !== 'function') return
+    const pos = getPos()
+    editor
+      ?.chain()
+      .focus()
+      .command(({ tr }: { tr: any }) => {
+        tr.insertText('', pos + 1, pos + node.nodeSize - 1)
+        return true
+      })
+      .run()
+    updateAttributes?.({ isPlaceholder: false })
+  }
+
+  return (
+    <NodeViewWrapper
+      as="div"
+      className="relative my-2"
+      data-metadata="true"
+      data-metadata-role="title"
+      data-metadata-id={metadataId ?? undefined}
+      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+    >
+      {showGroupDelete && (
+        <button
+          type="button"
+          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation()
+            controlsRef?.current?.onGroupRemove?.(metadataId)
+          }}
+        >
+          ×
+        </button>
+      )}
+      {showFieldDelete && (
+        <button
+          type="button"
+          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      )}
+      <h1
+        className={cn(
+          'text-3xl font-bold leading-snug focus:outline-none',
+          isPlaceholder && text === METADATA_TITLE_PLACEHOLDER ? 'text-muted-foreground' : ''
+        )}
+        onFocus={clearPlaceholder}
+      >
+        <NodeViewContent />
+      </h1>
+    </NodeViewWrapper>
+  )
+}
+
+function MetadataSummaryView(props: any) {
+  const { node, getPos, editor, deleteNode, updateAttributes, controlsRef } = props
+  useMetadataRerender(editor)
+  const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
+  const metadataId = node?.attrs?.metadataId
+  const isPlaceholder = node?.attrs?.isPlaceholder
+  const text = node?.textContent ?? ''
+  const showFieldDelete = mode === 'field'
+
+  const clearPlaceholder = () => {
+    if (!isPlaceholder || typeof getPos !== 'function') return
+    const pos = getPos()
+    editor
+      ?.chain()
+      .focus()
+      .command(({ tr }: { tr: any }) => {
+        tr.insertText('', pos + 1, pos + node.nodeSize - 1)
+        return true
+      })
+      .run()
+    updateAttributes?.({ isPlaceholder: false })
+  }
+
+  return (
+    <NodeViewWrapper
+      as="div"
+      className="relative my-1"
+      data-metadata="true"
+      data-metadata-role="summary"
+      data-metadata-id={metadataId ?? undefined}
+      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+    >
+      {showFieldDelete && (
+        <button
+          type="button"
+          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      )}
+      <blockquote
+        className={cn(
+          'border-l-4 border-muted-foreground/50 pl-3 text-muted-foreground',
+          isPlaceholder && text === METADATA_SUMMARY_PLACEHOLDER
+            ? 'text-muted-foreground'
+            : 'text-foreground'
+        )}
+        onFocus={clearPlaceholder}
+      >
+        <NodeViewContent />
+      </blockquote>
+    </NodeViewWrapper>
+  )
+}
+
+function CoverPlaceholderView(props: any) {
+  const { node, updateAttributes, deleteNode, editor, getPos, controlsRef } = props
+  useMetadataRerender(editor)
+  const src = node?.attrs?.src as string | null
+  const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
+  const metadataId = node?.attrs?.metadataId
+  const showFieldDelete = mode === 'field'
+
+  if (src) {
+    return (
+      <NodeViewWrapper
+        data-cover-placeholder
+        data-metadata="true"
+        data-metadata-role="cover"
+        data-metadata-id={metadataId ?? undefined}
+        className="my-3 relative"
+        onClick={(e: React.MouseEvent) => {
+          e.stopPropagation()
+          if (typeof getPos === 'function') {
+            editor?.commands.setNodeSelection(getPos())
+          }
+        }}
+      >
+        {showFieldDelete && (
+          <button
+            type="button"
+            className="absolute right-1 top-1 z-10 rounded-full bg-background/90 border text-xs px-2 py-1 shadow hover:bg-muted"
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation()
+              deleteNode?.()
+            }}
+          >
+            ×
+          </button>
+        )}
+        <img src={src} alt="Cover image" className="w-full rounded-md max-h-72 object-cover" />
+      </NodeViewWrapper>
+    )
+  }
+
+  return (
+    <NodeViewWrapper
+      data-cover-placeholder
+      data-metadata="true"
+      data-metadata-role="cover"
+      data-metadata-id={metadataId ?? undefined}
+      className="my-3 relative"
+      onClick={(e: React.MouseEvent) => {
+        e.stopPropagation()
+        if (typeof getPos === 'function') {
+          editor?.commands.setNodeSelection(getPos())
+        }
+      }}
+    >
+      {showFieldDelete && (
+        <button
+          type="button"
+          className="absolute right-1 top-1 z-10 rounded-full bg-background/90 border text-xs px-2 py-1 shadow hover:bg-muted"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation()
+            deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      )}
+      <Uploader
+        onUploadSuccess={({ url }) => {
+          updateAttributes({ src: url, isTemplate: false, metadata: true })
+          if (typeof getPos === 'function') {
+            editor?.commands.setNodeSelection(getPos())
+          }
+        }}
+        onUploadStart={(file, cancel) => props?.extensionStorage?.onUploadStart?.(file, cancel)}
+        onUploadEnd={(file) => props?.extensionStorage?.onUploadEnd?.(file)}
+        onProgress={(file, p) => props?.extensionStorage?.onUploadProgress?.(file, p)}
+      >
+        <button
+          type="button"
+          className="relative w-full aspect-[3/1] overflow-hidden rounded-md border border-dashed border-muted text-muted-foreground bg-muted/40 hover:bg-muted/60 transition-colors"
+        >
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <Upload className="h-5 w-5" />
+            <span>Upload cover image</span>
+          </div>
+        </button>
+      </Uploader>
+    </NodeViewWrapper>
+  )
 }

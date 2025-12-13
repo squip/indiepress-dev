@@ -11,7 +11,7 @@ import { LoaderCircle } from 'lucide-react'
 import { randomString } from '@/lib/random'
 import * as nip19 from '@nostr/tools/nip19'
 import { TDraftEvent } from '@/types'
-import ArticleMarkdownEditor from './ArticleMarkdownEditor'
+import ArticleMarkdownEditor, { MetadataSnapshot } from './ArticleMarkdownEditor'
 
 export default function ArticleContent({
   close,
@@ -44,6 +44,7 @@ export default function ArticleContent({
   const [uploadProgresses, setUploadProgresses] = useState<
     { file: File; progress: number; cancel: () => void }[]
   >([])
+  const [metadataSnapshot, setMetadataSnapshot] = useState<MetadataSnapshot | null>(null)
 
   const cacheKey = useMemo(
     () => `article-editor:${existingEvent?.id ?? 'new'}`,
@@ -59,11 +60,11 @@ export default function ArticleContent({
         setIdentifier(parsed.identifier ?? randomString(12))
         setSummary(parsed.summary ?? '')
         setImage(parsed.image ?? '')
-        setHashtagsText(parsed.hashtagsText ?? '')
-        setContent(parsed.content ?? '')
-        setEditorJson(parsed.editorJson ?? null)
-        setPublishedAt(parsed.publishedAt ?? undefined)
-        return
+      setHashtagsText(parsed.hashtagsText ?? '')
+      setContent(parsed.content ?? '')
+      setEditorJson(parsed.editorJson ?? null)
+      setPublishedAt(parsed.publishedAt ?? undefined)
+      return
       } catch (e) {
         console.error('Failed to parse article editor cache', e)
       }
@@ -91,6 +92,27 @@ export default function ArticleContent({
   }, [existingEvent, cacheKey])
 
   useEffect(() => {
+    if (!metadataSnapshot) return
+    if (metadataSnapshot.hasMetadataBlock) {
+      setTitle(metadataSnapshot.title ?? '')
+      setSummary(metadataSnapshot.summary ?? '')
+      setImage(metadataSnapshot.image ?? '')
+    } else if (metadataSnapshot.dismissed) {
+      setTitle('')
+      setSummary('')
+      setImage('')
+    }
+  }, [metadataSnapshot])
+
+  useEffect(() => {
+    const shouldClearCache =
+      ((!content?.trim() && !editorJson) || metadataSnapshot?.isTemplatePristine === true)
+
+    if (shouldClearCache) {
+      localStorage.removeItem(cacheKey)
+      return
+    }
+
     const payload = {
       title,
       identifier,
@@ -106,17 +128,29 @@ export default function ArticleContent({
     } catch (e) {
       console.error('Failed to cache article editor state', e)
     }
-  }, [title, identifier, summary, image, hashtagsText, content, publishedAt, cacheKey])
+  }, [
+    title,
+    identifier,
+    summary,
+    image,
+    hashtagsText,
+    content,
+    publishedAt,
+    cacheKey,
+    editorJson,
+    metadataSnapshot
+  ])
 
   const canPublish = useMemo(() => {
+    const hasContent = !!content.trim() && metadataSnapshot?.isTemplatePristine !== true
     return (
       !!identifier.trim() &&
-      !!content.trim() &&
+      hasContent &&
       !posting &&
       !savingDraft &&
       !uploadProgresses.length
     )
-  }, [identifier, content, posting, savingDraft, uploadProgresses.length])
+  }, [identifier, content, posting, savingDraft, uploadProgresses.length, metadataSnapshot])
 
   const hashtags = useMemo(
     () =>
@@ -136,13 +170,68 @@ export default function ArticleContent({
     return normalized.slice(0, 120)
   }
 
+  const resolvedMetadata = useMemo(() => {
+    if (metadataSnapshot?.dismissed) {
+      return { title: undefined, summary: undefined, image: undefined }
+    }
+    if (metadataSnapshot?.hasMetadataBlock) {
+      return {
+        title: metadataSnapshot.title,
+        summary: metadataSnapshot.summary,
+        image: metadataSnapshot.image
+      }
+    }
+    if (existingEvent) {
+      return {
+        title: title || '',
+        summary,
+        image
+      }
+    }
+    return { title, summary, image }
+  }, [metadataSnapshot, existingEvent, title, summary, image])
+
+  const shouldInsertTemplate = useMemo(() => {
+    const hasExisting = Boolean(existingEvent)
+    const hasMeaningfulCache =
+      !metadataSnapshot?.isTemplatePristine && (Boolean(content?.trim?.()) || Boolean(editorJson))
+    return !hasExisting && !hasMeaningfulCache
+  }, [existingEvent, content, editorJson, metadataSnapshot])
+
   const buildDraft = (isDraft: boolean) => {
+    const dismissedMetadata = metadataSnapshot?.dismissed
+    const fallbackTitle = (title || '').trim() || deriveTitle()
+    const resolvedTitle =
+      dismissedMetadata
+        ? undefined
+        : resolvedMetadata.title !== undefined
+          ? resolvedMetadata.title?.trim?.() || undefined
+          : metadataSnapshot?.hasMetadataBlock
+            ? undefined
+            : fallbackTitle
+    const resolvedSummary =
+      dismissedMetadata
+        ? undefined
+        : resolvedMetadata.summary !== undefined
+          ? resolvedMetadata.summary?.trim?.() || undefined
+          : metadataSnapshot?.hasMetadataBlock
+            ? undefined
+            : summary.trim() || undefined
+    const resolvedImage =
+      dismissedMetadata
+        ? undefined
+        : resolvedMetadata.image !== undefined
+          ? resolvedMetadata.image?.trim?.() || undefined
+          : metadataSnapshot?.hasMetadataBlock
+            ? undefined
+            : image.trim() || undefined
+
     const base = createLongFormDraftEvent(
       {
-        title: (title || '').trim() || deriveTitle(),
+        title: resolvedTitle,
         content,
-        summary: summary.trim(),
-        image: image.trim(),
+        summary: resolvedSummary,
+        image: resolvedImage,
         identifier: identifier.trim(),
         hashtags,
         publishedAt: isDraft ? undefined : publishedAt ?? Math.floor(Date.now() / 1000),
@@ -194,6 +283,7 @@ export default function ArticleContent({
         toast.success(isDraft ? t('Draft saved') : t('Article published'), {
           description
         })
+        localStorage.removeItem(cacheKey)
         close()
         return newEvent
       } catch (error) {
@@ -234,6 +324,8 @@ export default function ArticleContent({
           onChange={setContent}
           initialJson={editorJson}
           onJsonChange={setEditorJson}
+          onMetadataChange={setMetadataSnapshot}
+          shouldInsertTemplate={shouldInsertTemplate}
           mentions={mentions}
           setMentions={setMentions}
           onUploadStart={handleUploadStart}

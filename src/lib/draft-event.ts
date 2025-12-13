@@ -166,7 +166,7 @@ export async function createShortTextNoteDraftEvent(
 }
 
 export type TLongFormDraftContent = {
-  title: string
+  title?: string
   content: string
   summary?: string
   image?: string
@@ -232,12 +232,15 @@ export function createLongFormDraftEvent(
 
   const tags: string[][] = []
   tags.push(buildDTag(finalIdentifier))
-  tags.push(buildTitleTag(title))
-  if (summary) {
-    tags.push(['summary', summary])
+  const trimmedTitle = title?.trim?.()
+  if (trimmedTitle) {
+    tags.push(buildTitleTag(trimmedTitle))
   }
-  if (image) {
-    tags.push(['image', image])
+  if (summary?.trim?.()) {
+    tags.push(['summary', summary.trim()])
+  }
+  if (image?.trim?.()) {
+    tags.push(['image', image.trim()])
   }
   hashtagSet.forEach((t) => tags.push(buildTTag(t)))
   if (!isDraft && finalPublishedAt) {

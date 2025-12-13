@@ -195,7 +195,7 @@ export type TMediaAutoLoadPolicy =
 export type TLinkPreviewMode = (typeof LINK_PREVIEW_MODE)[keyof typeof LINK_PREVIEW_MODE]
 
 export type TLongFormDraftContent = {
-  title: string
+  title?: string
   content: string
   summary?: string
   image?: string
