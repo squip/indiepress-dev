@@ -1840,15 +1840,13 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
         (node?.attrs?.metadataRole as MetadataRole | undefined) || inferMetadataRole(node)
       if (role === 'title') {
         const text = (node.textContent || '').trim()
-        const isPlaceholder =
-          node.attrs.isPlaceholder || text === METADATA_TITLE_PLACEHOLDER
+        const isPlaceholder = text === METADATA_TITLE_PLACEHOLDER
         if (text && !isPlaceholder) {
           snapshot.title = text
         }
       } else if (role === 'summary') {
         const text = (node.textContent || '').trim()
-        const isPlaceholder =
-          node.attrs.isPlaceholder || text === METADATA_SUMMARY_PLACEHOLDER
+        const isPlaceholder = text === METADATA_SUMMARY_PLACEHOLDER
         if (text && !isPlaceholder) {
           snapshot.summary = text
         }
