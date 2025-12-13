@@ -324,6 +324,31 @@
   border-radius: 0.65rem;
 }
 
+.article-editor .article-editor__content .pm-current-paragraph {
+  position: relative;
+  background: hsl(var(--muted) / 0.60);
+  border-radius: 0.4rem;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  display: block;
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.dark .article-editor .article-editor__content .pm-current-paragraph {
+  background: hsl(var(--muted) / 0.25);
+}
+
+.article-editor .article-editor__content li .pm-current-paragraph {
+  margin-left: calc(-0.75rem - 1.4em);
+  padding-left: calc(0.75rem + 1.4em);
+  margin-right: -0.75rem;
+}
+
 .article-toolbar .toolbar-button[data-active='true'] {
   background-color: hsl(var(--accent));
   color: hsl(var(--accent-foreground));

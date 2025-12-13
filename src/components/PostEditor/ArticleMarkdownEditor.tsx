@@ -62,6 +62,8 @@ import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
 import VideoPlayer from '../VideoPlayer'
 import { useFetchWebMetadata } from '@/hooks/useFetchWebMetadata'
 import { Play } from 'lucide-react'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Plugin } from '@tiptap/pm/state'
 import { DOMParser as PMDOMParser } from '@tiptap/pm/model'
 
 type ArticleMarkdownEditorProps = {
@@ -317,7 +319,8 @@ export default function ArticleMarkdownEditor({
         breaks: true
       }),
       LinkPreviewNode,
-      MediaEmbedNode
+      MediaEmbedNode,
+      ParagraphHighlight
     ],
     editorProps: {
       attributes: {
@@ -1073,6 +1076,37 @@ const MediaEmbedNode = Node.create({
         }
       }
     }
+  }
+})
+
+const ParagraphHighlight = Node.create({
+  name: 'paragraphHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          decorations: (state) => {
+            const { selection, doc } = state
+            const { from } = selection
+            const decorations: Decoration[] = []
+            let found = false
+
+            doc.nodesBetween(from, from, (node, pos) => {
+              if (node.type.name === 'paragraph') {
+                decorations.push(
+                  Decoration.node(pos, pos + node.nodeSize, { class: 'pm-current-paragraph' })
+                )
+                found = true
+                return false
+              }
+              return
+            })
+
+            return found ? DecorationSet.create(doc, decorations) : null
+          }
+        }
+      })
+    ]
   }
 })
 
