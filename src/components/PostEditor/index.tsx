@@ -48,6 +48,9 @@ export default function PostEditor({
   const { t } = useTranslation()
   const canToggleTabs = !parentEvent
   const [tab, setTab] = useState<'post' | 'article'>(parentEvent ? 'post' : defaultTab)
+  const tabsStickyClass = !isSmallScreen
+    ? 'sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:backdrop-blur'
+    : ''
 
   // Replies/quotes should never switch into article mode
   useEffect(() => {
@@ -110,7 +113,7 @@ export default function PostEditor({
                     value={tab}
                     onValueChange={(v) => setTab(v as 'post' | 'article')}
                   >
-                    <TabsList className="bg-transparent p-0 h-auto gap-6 justify-start w-full">
+                    <TabsList className={`bg-transparent p-0 h-auto gap-6 justify-start w-full ${tabsStickyClass}`}>
                       <TabsTrigger
                         value="post"
                         className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
@@ -167,7 +170,7 @@ export default function PostEditor({
                     value={tab}
                     onValueChange={(v) => setTab(v as 'post' | 'article')}
                   >
-                    <TabsList className="bg-transparent p-0 h-auto gap-6 justify-start w-full">
+                    <TabsList className={`bg-transparent p-0 h-auto gap-6 justify-start w-full ${tabsStickyClass}`}>
                       <TabsTrigger
                         value="post"
                         className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"

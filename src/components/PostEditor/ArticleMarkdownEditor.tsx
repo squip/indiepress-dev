@@ -259,9 +259,10 @@ export default function ArticleMarkdownEditor({
           return {
             markdown: {
               serialize: (state: any, node: any) => {
-                // Render mention as its label or id as plain text for markdown output.
-                const text = (node?.attrs?.label as string) || (node?.attrs?.id as string) || ''
-                state.write(text)
+                const npub = (node?.attrs?.id as string) || ''
+                if (npub) {
+                  state.write(`nostr:${npub}`)
+                }
               },
               parse: {
                 // no-op; mentions will come back as plain text unless a custom parser is added
@@ -1004,32 +1005,30 @@ export default function ArticleMarkdownEditor({
             shouldIgnoreTap={() => skipToolbarTapRef.current}
           />
         </Uploader>
-        {!isTouchDevice() && (
-          <EmojiPickerDialog
-            onEmojiClick={(emoji) => {
-              onEmojiSelect?.(emoji)
-              if (!emoji) return
-              editor
-                .chain()
-                .focus()
-                .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
-                .run()
-              debugLog('toolbar:emoji-insert', {
-                emoji: typeof emoji === 'string' ? emoji : emoji?.shortcode
-              })
-            }}
-          >
-            <ToolbarButton
-              icon={Smile}
-              label="Emoji"
-              onClick={() => {}}
-              shouldIgnoreTap={() => skipToolbarTapRef.current}
-            />
-          </EmojiPickerDialog>
-        )}
+        <EmojiPickerDialog
+          onEmojiClick={(emoji) => {
+            onEmojiSelect?.(emoji)
+            if (!emoji) return
+            editor
+              .chain()
+              .focus()
+              .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
+              .run()
+            debugLog('toolbar:emoji-insert', {
+              emoji: typeof emoji === 'string' ? emoji : emoji?.shortcode
+            })
+          }}
+        >
           <ToolbarButton
-            icon={Minus}
-            label="Horizontal rule"
+            icon={Smile}
+            label="Emoji"
+            onClick={() => {}}
+            shouldIgnoreTap={() => skipToolbarTapRef.current}
+          />
+        </EmojiPickerDialog>
+        <ToolbarButton
+          icon={Minus}
+          label="Horizontal rule"
             onClick={() => {
               debugLog('toolbar:hr')
               editor.chain().focus().setHorizontalRule().run()
@@ -1166,7 +1165,9 @@ export default function ArticleMarkdownEditor({
           }}
         />
       {!isTouchSmallScreen && (
-        <div className="article-toolbar flex flex-wrap items-center gap-2">{toolbarBody}</div>
+        <div className="article-toolbar flex flex-wrap items-center gap-2 sticky top-0 z-30 bg-background/90 backdrop-blur supports-[backdrop-filter]:backdrop-blur px-1 py-1">
+          {toolbarBody}
+        </div>
       )}
       {floatingToolbarVisible &&
         typeof document !== 'undefined' &&
@@ -1318,7 +1319,7 @@ function HeadingMenu({
   editor: NonNullable<ReturnType<typeof useEditor>>
   shouldIgnoreTap: () => boolean
 }) {
-  const isHeadingActive = (level: number) => editor.isActive('heading', { level })
+  const isHeadingActive = (level: Level) => editor.isActive('heading', { level })
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1335,18 +1336,14 @@ function HeadingMenu({
         <DropdownMenuItem onSelect={() => editor.chain().focus().setParagraph().run()}>
           Paragraph
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
-          Heading 1
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
-          Heading 2
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
-          Heading 3
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}>
-          Heading 4
-        </DropdownMenuItem>
+        {[1, 2, 3, 4, 5, 6].map((lvl) => (
+          <DropdownMenuItem
+            key={lvl}
+            onSelect={() => editor.chain().focus().toggleHeading({ level: lvl as Level }).run()}
+          >
+            {`Heading ${lvl}`}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -1516,7 +1513,7 @@ function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<Meta
     addOptions() {
       return {
         ...this.parent?.(),
-        levels: [1, 2, 3, 4] as Level[]
+        levels: [1, 2, 3, 4, 5, 6] as Level[]
       }
     },
     addAttributes() {

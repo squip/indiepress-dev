@@ -67,7 +67,9 @@ export default function Uploader({
 
   return (
     <div className={className}>
-      <div onClick={handleUploadClick}>{children}</div>
+      <div onClickCapture={handleUploadClick}>
+        {children}
+      </div>
       <input
         type="file"
         ref={fileInputRef}
