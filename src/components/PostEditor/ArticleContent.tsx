@@ -34,6 +34,7 @@ export default function ArticleContent({
   const [image, setImage] = useState('')
   const [hashtagsText, setHashtagsText] = useState('')
   const [content, setContent] = useState('')
+  const [bodyContent, setBodyContent] = useState('')
   const [editorJson, setEditorJson] = useState<any>(null)
   const [publishedAt, setPublishedAt] = useState<number | undefined>(undefined)
   const [posting, setPosting] = useState(false)
@@ -60,11 +61,12 @@ export default function ArticleContent({
         setIdentifier(parsed.identifier ?? randomString(12))
         setSummary(parsed.summary ?? '')
         setImage(parsed.image ?? '')
-      setHashtagsText(parsed.hashtagsText ?? '')
-      setContent(parsed.content ?? '')
-      setEditorJson(parsed.editorJson ?? null)
-      setPublishedAt(parsed.publishedAt ?? undefined)
-      return
+        setHashtagsText(parsed.hashtagsText ?? '')
+        setContent(parsed.content ?? '')
+        setBodyContent(parsed.bodyContent ?? parsed.content ?? '')
+        setEditorJson(parsed.editorJson ?? null)
+        setPublishedAt(parsed.publishedAt ?? undefined)
+        return
       } catch (e) {
         console.error('Failed to parse article editor cache', e)
       }
@@ -88,7 +90,9 @@ export default function ArticleContent({
     if (hashTags.length) {
       setHashtagsText(hashTags.join(', '))
     }
-    setContent(existingEvent.content || '')
+    const incomingContent = existingEvent.content || ''
+    setContent(incomingContent)
+    setBodyContent(incomingContent)
   }, [existingEvent, cacheKey])
 
   useEffect(() => {
@@ -120,6 +124,7 @@ export default function ArticleContent({
       image,
       hashtagsText,
       content,
+      bodyContent,
       editorJson,
       publishedAt
     }
@@ -135,6 +140,7 @@ export default function ArticleContent({
     image,
     hashtagsText,
     content,
+    bodyContent,
     publishedAt,
     cacheKey,
     editorJson,
@@ -142,7 +148,8 @@ export default function ArticleContent({
   ])
 
   const canPublish = useMemo(() => {
-    const hasContent = !!content.trim() && metadataSnapshot?.isTemplatePristine !== true
+    const effectiveBody = bodyContent || content
+    const hasContent = !!effectiveBody.trim() && metadataSnapshot?.isTemplatePristine !== true
     return (
       !!identifier.trim() &&
       hasContent &&
@@ -150,7 +157,7 @@ export default function ArticleContent({
       !savingDraft &&
       !uploadProgresses.length
     )
-  }, [identifier, content, posting, savingDraft, uploadProgresses.length, metadataSnapshot])
+  }, [identifier, bodyContent, content, posting, savingDraft, uploadProgresses.length, metadataSnapshot])
 
   const hashtags = useMemo(
     () =>
@@ -162,7 +169,8 @@ export default function ArticleContent({
   )
 
   const deriveTitle = () => {
-    const lines = content.split('\n').map((l) => l.trim()).filter(Boolean)
+    const base = bodyContent || content
+    const lines = base.split('\n').map((l) => l.trim()).filter(Boolean)
     const firstLine = lines[0] ?? ''
     const cleaned = firstLine.replace(/^#+\s*/, '').replace(/^[-*]\s*/, '')
     const fallback = cleaned || content.replace(/[#*_`>]/g, ' ').trim()
@@ -194,9 +202,10 @@ export default function ArticleContent({
   const shouldInsertTemplate = useMemo(() => {
     const hasExisting = Boolean(existingEvent)
     const hasMeaningfulCache =
-      !metadataSnapshot?.isTemplatePristine && (Boolean(content?.trim?.()) || Boolean(editorJson))
+      !metadataSnapshot?.isTemplatePristine &&
+      (Boolean(content?.trim?.()) || Boolean(editorJson) || Boolean(bodyContent?.trim?.()))
     return !hasExisting && !hasMeaningfulCache
-  }, [existingEvent, content, editorJson, metadataSnapshot])
+  }, [existingEvent, content, bodyContent, editorJson, metadataSnapshot])
 
   const buildDraft = (isDraft: boolean) => {
     const dismissedMetadata = metadataSnapshot?.dismissed
@@ -226,10 +235,11 @@ export default function ArticleContent({
             ? undefined
             : image.trim() || undefined
 
+    const body = bodyContent || content
     const base = createLongFormDraftEvent(
       {
         title: resolvedTitle,
-        content,
+        content: body,
         summary: resolvedSummary,
         image: resolvedImage,
         identifier: identifier.trim(),
@@ -322,6 +332,7 @@ export default function ArticleContent({
         <ArticleMarkdownEditor
           value={content}
           onChange={setContent}
+          onBodyChange={setBodyContent}
           initialJson={editorJson}
           onJsonChange={setEditorJson}
           onMetadataChange={setMetadataSnapshot}

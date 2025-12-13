@@ -59,7 +59,8 @@ import {
   Save,
   SquarePlus,
   SquareX,
-  Upload
+  Upload,
+  LayoutTemplate
 } from 'lucide-react'
 import Mention from './PostTextarea/Mention'
 import mentionSuggestion from './PostTextarea/Mention/suggestion'
@@ -83,6 +84,7 @@ type ArticleMarkdownEditorProps = {
   onChange: (next: string) => void
   initialJson?: any
   onJsonChange?: (json: any) => void
+  onBodyChange?: (next: string) => void
   onMetadataChange?: (meta: MetadataSnapshot) => void
   mentions?: string[]
   setMentions?: (m: string[]) => void
@@ -121,6 +123,7 @@ export default function ArticleMarkdownEditor({
   onChange,
   initialJson,
   onJsonChange,
+  onBodyChange,
   onMetadataChange,
   mentions,
   setMentions,
@@ -164,6 +167,7 @@ export default function ArticleMarkdownEditor({
   const [linkUrl, setLinkUrl] = useState('https://')
   const [linkText, setLinkText] = useState('')
   const { signEvent } = useNostr()
+  const editorRef = useRef<ReturnType<typeof useEditor> | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(() => {
     if (typeof window === 'undefined') return false
     const stored = localStorage.getItem('article-editor-debug')
@@ -307,6 +311,8 @@ export default function ArticleMarkdownEditor({
       const snapshot = extractMetadataFromDoc(doc, metadataDismissedRef.current)
       if (snapshot.hasMetadataBlock) {
         metadataDismissedRef.current = false
+      } else if (templateInsertedRef.current) {
+        metadataDismissedRef.current = true
       }
       setMetadataSnapshot(snapshot)
       onMetadataChange?.(snapshot)
@@ -344,12 +350,55 @@ export default function ArticleMarkdownEditor({
     [debugLog]
   )
 
+  const refreshTemplate = useCallback(() => {
+    const currentEditor = editorRef.current
+    if (!currentEditor) return
+    const metadataId = generateMetadataId()
+    try {
+      const docJson = currentEditor.getJSON()
+      const body = stripMetadataFromDocJSON(docJson)
+      const bodyContent = Array.isArray(body?.content) ? body.content : []
+      const isSingleEmptyParagraph =
+        bodyContent.length === 1 && isEmptyParagraphNode(bodyContent[0])
+      const nextDoc = {
+        type: 'doc',
+        content: [...getTemplateContent(metadataId).content, ...(isSingleEmptyParagraph ? [] : bodyContent)]
+      }
+      currentEditor
+        .chain()
+        .focus()
+        .setContent(nextDoc)
+        .command(({ tr, dispatch }) => {
+          const end = tr.doc.content.size
+          try {
+            const Selection = (currentEditor.state.selection as any).constructor
+            const pos = Math.max(1, end - 1)
+            tr.setSelection(Selection.near(tr.doc.resolve(pos)))
+          } catch {
+            /* ignore */
+          }
+          if (dispatch) dispatch(tr)
+          return true
+        })
+        .run()
+      templateInsertedRef.current = true
+      metadataDismissedRef.current = false
+      recomputeMetadataUi(currentEditor.state, 'template-refresh')
+      notifyMetadataChange(currentEditor.state.doc, 'template-refresh')
+      debugLog('template:refresh', { metadataId })
+    } catch (e) {
+      debugLog('template:refresh-error', { message: (e as Error)?.message })
+    }
+  }, [notifyMetadataChange, recomputeMetadataUi, debugLog])
+
   const simulateArticleEvent = useCallback(async () => {
     const dismissed = metadataSnapshot?.dismissed
+    const currentEditor = editorRef.current
+    const bodyMarkdown = currentEditor ? getBodyMarkdown(currentEditor as any) : value
     const draft = createLongFormDraftEvent(
       {
         title: dismissed ? undefined : metadataSnapshot?.title,
-        content: value,
+        content: bodyMarkdown,
         summary: dismissed ? undefined : metadataSnapshot?.summary,
         image: dismissed ? undefined : metadataSnapshot?.image,
         identifier: metadataSnapshot?.metadataId ?? randomString(12),
@@ -532,13 +581,16 @@ export default function ArticleMarkdownEditor({
     },
     onUpdate: ({ editor }) => {
       const markdown = getMarkdown(editor as any)
+      const bodyMarkdown = getBodyMarkdown(editor as any)
       lastMarkdown.current = markdown
       onChange(markdown)
+      onBodyChange?.(bodyMarkdown)
       onJsonChange?.(editor.getJSON())
       recomputeMetadataUi(editor.state, 'onUpdate')
       notifyMetadataChange(editor.state.doc, 'onUpdate')
       debugLog('update', {
         markdownLength: markdown?.length ?? 0,
+        bodyMarkdownLength: bodyMarkdown?.length ?? 0,
         selection: editor.state.selection?.toJSON?.()
       })
     },
@@ -557,6 +609,7 @@ export default function ArticleMarkdownEditor({
       debugLog('blur')
     }
   })
+  editorRef.current = editor
 
   const removeMetadataGroup = useCallback(
     (metadataId?: string | null) => {
@@ -950,6 +1003,21 @@ export default function ArticleMarkdownEditor({
             isLast
             shouldIgnoreTap={() => skipToolbarTapRef.current}
           />
+      </ToolbarGroup>
+      <ToolbarDivider />
+      <ToolbarGroup>
+        <ToolbarButton
+          icon={LayoutTemplate}
+          label="Insert template"
+          onClick={() => {
+            debugLog('toolbar:template')
+            refreshTemplate()
+          }}
+          isFirst
+          isLast
+          withText={!isTouchSmallScreen}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
       </ToolbarGroup>
       <ToolbarDivider />
       <ToolbarGroup>
@@ -1768,7 +1836,8 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
     if (isMetadata) {
       snapshot.hasMetadataBlock = true
       snapshot.metadataId = snapshot.metadataId ?? node?.attrs?.metadataId ?? null
-      const role = node?.attrs?.metadataRole as MetadataRole | undefined
+      const role =
+        (node?.attrs?.metadataRole as MetadataRole | undefined) || inferMetadataRole(node)
       if (role === 'title') {
         const text = (node.textContent || '').trim()
         const isPlaceholder =
@@ -1800,6 +1869,9 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
   })
   if (snapshot.hasMetadataBlock) {
     snapshot.dismissed = false
+  }
+  if (!snapshot.hasMetadataBlock) {
+    snapshot.dismissed = true
   }
   snapshot.isTemplatePristine =
     snapshot.hasMetadataBlock &&
@@ -1854,6 +1926,68 @@ function summarizeContent(content: any) {
 
 function generateMetadataId() {
   return `meta-${Math.random().toString(36).slice(2)}-${Date.now()}`
+}
+
+function stripMetadataFromDocJSON(docJson: any) {
+  if (!docJson || typeof docJson !== 'object') return docJson
+  const clone = JSON.parse(JSON.stringify(docJson))
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return null
+    if (node.attrs?.metadata) {
+      return null
+    }
+    if (Array.isArray(node.content)) {
+      const filtered = node.content
+        .map((child: any) => walk(child))
+        .filter(Boolean) as any[]
+      node.content = filtered
+    }
+    return node
+  }
+  const cleaned = walk(clone)
+  if (!cleaned?.content || cleaned.content.length === 0) {
+    cleaned.content = [
+      {
+        type: 'paragraph',
+        content: []
+      }
+    ]
+  }
+  return cleaned
+}
+
+function getBodyMarkdown(editor: any) {
+  const storage = editor?.storage?.markdown
+  const serializer = storage?.serializer
+  const schema = editor?.schema
+  try {
+    const docJson = editor?.getJSON?.() ?? editor?.state?.doc?.toJSON?.()
+    const stripped = stripMetadataFromDocJSON(docJson)
+    if (!serializer || !schema || !stripped) {
+      return storage?.getMarkdown?.() ?? editor?.getText?.() ?? ''
+    }
+    const node = schema.nodeFromJSON(stripped)
+    return serializer.serialize(node)
+  } catch (_e) {
+    return storage?.getMarkdown?.() ?? editor?.getText?.() ?? ''
+  }
+}
+
+function inferMetadataRole(node: any): MetadataRole | undefined {
+  if (!node) return undefined
+  if (node.type?.name === 'coverPlaceholder') return 'cover'
+  if (node.type?.name === 'heading' && node.attrs?.level === 1) return 'title'
+  if (node.type?.name === 'blockquote') return 'summary'
+  return undefined
+}
+
+function isEmptyParagraphNode(node: any) {
+  if (!node || node.type !== 'paragraph') return false
+  if (!node.content || node.content.length === 0) return true
+  if (node.content.length === 1 && node.content[0].type === 'text') {
+    return !(node.content[0].text || '').trim()
+  }
+  return false
 }
 
 function isYoutubeUrl(url: string) {
