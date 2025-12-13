@@ -737,33 +737,41 @@ export default function ArticleMarkdownEditor({
         setUrl={setLinkUrl}
           text={linkText}
           setText={setLinkText}
-          onSubmit={(url, text) => {
-            const trimmed = url.trim()
-            if (!trimmed) {
-              editor.chain().focus().unsetLink().run()
-              debugLog('link:unset')
-              return
-            }
-            const chain = editor.chain().focus()
-            if (editor.state.selection.empty && linkSelectionRef.current) {
-              chain.setTextSelection(linkSelectionRef.current)
-            }
-            if (editor.state.selection.empty) {
-              const insertText = text || trimmed
-              const start = editor.state.selection.from
-              chain
-                .insertContent(insertText)
-                .setTextSelection({ from: start, to: start + insertText.length })
-                .extendMarkRange('link')
-                .setLink({ href: trimmed })
-                .run()
-              debugLog('link:insert', { url: trimmed, text: text || trimmed })
-              linkSelectionRef.current = null
-              return
-            }
-            chain.extendMarkRange('link').setLink({ href: trimmed }).run()
-            debugLog('link:apply', { url: trimmed })
+        onSubmit={(url, text) => {
+          const trimmed = url.trim()
+          if (!trimmed) {
+            editor.chain().focus().unsetLink().run()
+            debugLog('link:unset')
+            return
+          }
+          const chain = editor.chain().focus()
+          // Restore stored selection if current is empty
+          if (editor.state.selection.empty && linkSelectionRef.current) {
+            chain.setTextSelection(linkSelectionRef.current)
+          }
+
+          if (editor.state.selection.empty) {
+            const insertText = text || trimmed
+            const start = editor.state.selection.from
+            chain
+              .insertContent(insertText)
+              .setTextSelection({ from: start, to: start + insertText.length })
+              .extendMarkRange('link')
+              .setLink({ href: trimmed })
+              .run()
+            debugLog('link:insert', { url: trimmed, text: insertText })
             linkSelectionRef.current = null
+            return
+          }
+
+          // If there is a selection, optionally replace it with provided text then set link
+          if (text) {
+            const { from, to } = editor.state.selection
+            chain.insertContentAt({ from, to }, text).setTextSelection({ from, to: from + text.length })
+          }
+          chain.extendMarkRange('link').setLink({ href: trimmed }).run()
+          debugLog('link:apply', { url: trimmed, text: text || undefined })
+          linkSelectionRef.current = null
           }}
         />
       {!isTouchSmallScreen && (
@@ -1272,23 +1280,66 @@ function extractYoutubeId(url: string) {
   }
 }
 
-function LinkPreviewView({ node }: any) {
+function LinkPreviewView(props: any) {
+  const { node, getPos, editor, deleteNode } = props
   const url = node.attrs.url as string
   if (!url) return null
   if (isYoutubeUrl(url)) {
     return (
-      <NodeViewWrapper data-link-preview className="my-2">
+      <NodeViewWrapper
+        data-link-preview
+        className="my-2"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (typeof getPos === 'function') {
+            editor?.commands.setNodeSelection(getPos())
+          }
+        }}
+      >
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation()
+              ;(props as any)?.deleteNode?.()
+            }}
+          >
+            ×
+          </button>
+        </div>
         <YoutubeCard url={url} />
       </NodeViewWrapper>
     )
   }
   return (
-    <NodeViewWrapper data-link-preview className="my-2">
-      <div className="space-y-2">
-        <WebPreview url={url} className="my-2" showFallback={false} />
-        <a
-          href={url}
-          target="_blank"
+    <NodeViewWrapper
+      data-link-preview
+      className="my-2"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (typeof getPos === 'function') {
+            editor?.commands.setNodeSelection(getPos())
+          }
+        }}
+      >
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation()
+              ;(props as any)?.deleteNode?.()
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div className="space-y-2">
+          <WebPreview url={url} className="my-2" showFallback={false} />
+          <a
+            href={url}
+            target="_blank"
           rel="noopener noreferrer nofollow"
           className="text-primary underline break-words"
         >
@@ -1299,11 +1350,33 @@ function LinkPreviewView({ node }: any) {
   )
 }
 
-function MediaEmbedView({ node }: any) {
-  const url = node.attrs.src as string
+function MediaEmbedView(props: any) {
+  const { node, getPos, editor } = props
+  const url = node?.attrs?.src as string
   if (!url) return null
   return (
-    <NodeViewWrapper data-media-embed className="my-2">
+    <NodeViewWrapper
+      data-media-embed
+      className="my-2"
+      onClick={(e) => {
+        e.stopPropagation()
+        if (typeof getPos === 'function') {
+          editor?.commands.setNodeSelection(getPos())
+        }
+      }}
+    >
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation()
+            ;(props as any)?.deleteNode?.()
+          }}
+        >
+          ×
+        </button>
+      </div>
       <VideoPlayer src={url} className="my-2" />
     </NodeViewWrapper>
   )
