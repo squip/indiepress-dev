@@ -599,7 +599,19 @@ export default function ArticleMarkdownEditor({
           .chain()
           .clearContent()
           .insertContent(getTemplateContent(metadataId))
-          .setTextSelection(1)
+          .command(({ tr, dispatch }) => {
+            // Place the caret in the body paragraph after the metadata block.
+            const end = tr.doc.content.size
+            try {
+              const Selection = (editor.state.selection as any).constructor
+              const pos = Math.max(1, end - 1)
+              tr.setSelection(Selection.near(tr.doc.resolve(pos)))
+            } catch {
+              /* ignore */
+            }
+            if (dispatch) dispatch(tr)
+            return true
+          })
           .run()
         templateInsertedRef.current = true
         metadataDismissedRef.current = false
@@ -1610,6 +1622,11 @@ function getTemplateContent(metadataId: string) {
       {
         type: 'coverPlaceholder',
         attrs: { src: null, isTemplate: true, metadata: true, metadataId, metadataRole: 'cover' }
+      },
+      {
+        type: 'paragraph',
+        attrs: { metadata: false },
+        content: []
       }
     ]
   }
