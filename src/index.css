@@ -343,8 +343,8 @@
 }
 
 .article-editor .article-editor__content li .pm-current-paragraph {
-  margin-left: calc(-0.75rem - 1.4em);
-  padding-left: calc(0.75rem + 1.4em);
+  margin-left: calc(-0.75rem - 1.6em);
+  padding-left: calc(0.75rem + 1.6em);
   margin-right: -0.75rem;
 }
 

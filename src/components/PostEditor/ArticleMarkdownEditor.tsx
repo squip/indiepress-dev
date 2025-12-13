@@ -275,7 +275,7 @@ export default function ArticleMarkdownEditor({
       TaskItem.configure({
         nested: false
       }),
-      ImageExtension.configure({
+      ImageNode.configure({
         inline: false,
         allowBase64: true,
         HTMLAttributes: {
@@ -744,33 +744,30 @@ export default function ArticleMarkdownEditor({
             debugLog('link:unset')
             return
           }
-          const chain = editor.chain().focus()
-          // Restore stored selection if current is empty
-          if (editor.state.selection.empty && linkSelectionRef.current) {
-            chain.setTextSelection(linkSelectionRef.current)
-          }
+          editor.commands.focus()
+          const { state, view } = editor
+          const stored = linkSelectionRef.current
+          const from = stored?.from ?? state.selection.from
+          const to = stored?.to ?? state.selection.to
+          const hasText = Boolean(text)
+          const insertText = hasText
+            ? text!
+            : state.doc.textBetween(from, to, ' ') || trimmed
 
-          if (editor.state.selection.empty) {
-            const insertText = text || trimmed
-            const start = editor.state.selection.from
-            chain
-              .insertContent(insertText)
-              .setTextSelection({ from: start, to: start + insertText.length })
-              .extendMarkRange('link')
-              .setLink({ href: trimmed })
-              .run()
-            debugLog('link:insert', { url: trimmed, text: insertText })
-            linkSelectionRef.current = null
-            return
-          }
+          editor.chain().command(({ tr, dispatch }) => {
+            // Replace selection (or caret) with text
+            tr.insertText(insertText, from, to)
+            const start = from
+            const end = from + insertText.length
+            tr.setSelection((state.selection as any).constructor.create(tr.doc, start, end))
+            tr.addMark(start, end, state.schema.marks.link.create({ href: trimmed }))
+            if (dispatch) {
+              dispatch(tr.scrollIntoView())
+            }
+            return true
+          }).run()
 
-          // If there is a selection, optionally replace it with provided text then set link
-          if (text) {
-            const { from, to } = editor.state.selection
-            chain.insertContentAt({ from, to }, text).setTextSelection({ from, to: from + text.length })
-          }
-          chain.extendMarkRange('link').setLink({ href: trimmed }).run()
-          debugLog('link:apply', { url: trimmed, text: text || undefined })
+          debugLog('link:apply', { url: trimmed, text: insertText })
           linkSelectionRef.current = null
           }}
         />
@@ -1115,6 +1112,42 @@ const ParagraphHighlight = Node.create({
         }
       })
     ]
+  }
+})
+
+const ImageNode = ImageExtension.extend({
+  addNodeView() {
+    return ({ node, getPos, editor, deleteNode }) => {
+      const src = node.attrs.src as string
+      const alt = node.attrs.alt as string
+      return (
+        <NodeViewWrapper
+          as="div"
+          className="my-3"
+          data-image-node
+          onClick={(e) => {
+            e.stopPropagation()
+            if (typeof getPos === 'function') {
+              editor?.commands.setNodeSelection(getPos())
+            }
+          }}
+        >
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="text-muted-foreground text-xs px-2 py-1 hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation()
+                deleteNode?.()
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <img src={src} alt={alt} className="rounded-md max-w-full" />
+        </NodeViewWrapper>
+      )
+    }
   }
 })
 
