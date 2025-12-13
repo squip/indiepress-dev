@@ -46,6 +46,7 @@ export default function ArticleContent({
     { file: File; progress: number; cancel: () => void }[]
   >([])
   const [metadataSnapshot, setMetadataSnapshot] = useState<MetadataSnapshot | null>(null)
+  const [cacheHydrated, setCacheHydrated] = useState(false)
 
   const cacheKey = useMemo(
     () => `article-editor:${existingEvent?.id ?? 'new'}`,
@@ -66,6 +67,8 @@ export default function ArticleContent({
         setBodyContent(parsed.bodyContent ?? parsed.content ?? '')
         setEditorJson(parsed.editorJson ?? null)
         setPublishedAt(parsed.publishedAt ?? undefined)
+        setMetadataSnapshot(parsed.metadataSnapshot ?? null)
+        setCacheHydrated(true)
         return
       } catch (e) {
         console.error('Failed to parse article editor cache', e)
@@ -93,6 +96,8 @@ export default function ArticleContent({
     const incomingContent = existingEvent.content || ''
     setContent(incomingContent)
     setBodyContent(incomingContent)
+    setMetadataSnapshot(null)
+    setCacheHydrated(true)
   }, [existingEvent, cacheKey])
 
   useEffect(() => {
@@ -126,7 +131,8 @@ export default function ArticleContent({
       content,
       bodyContent,
       editorJson,
-      publishedAt
+      publishedAt,
+      metadataSnapshot
     }
     try {
       localStorage.setItem(cacheKey, JSON.stringify(payload))
@@ -329,30 +335,35 @@ export default function ArticleContent({
   return (
     <div className="space-y-3 flex flex-col max-h-[calc(100vh-180px)] sm:max-h-none">
       <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
-        <ArticleMarkdownEditor
-          value={content}
-          onChange={setContent}
-          onBodyChange={setBodyContent}
-          initialJson={editorJson}
-          onJsonChange={setEditorJson}
-          onMetadataChange={setMetadataSnapshot}
-          shouldInsertTemplate={shouldInsertTemplate}
-          mentions={mentions}
-          setMentions={setMentions}
-          onUploadStart={handleUploadStart}
-          onUploadEnd={handleUploadEnd}
-          onUploadProgress={handleUploadProgress}
-          onUploadSuccess={({ url }) => {
-            setContent((prev) => `${prev}${prev ? '\n' : ''}${url}`)
-          }}
-          onEmojiSelect={(emoji) => {
-            if (!emoji) return
-            setContent((prev) =>
-              `${prev} ${typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`}`.trim()
-            )
-          }}
-          onSaveDraft={() => publishDraft(true)}
-        />
+        {!cacheHydrated ? (
+          <div className="text-sm text-muted-foreground">{t('Loading...')}</div>
+        ) : (
+          <ArticleMarkdownEditor
+            value={content}
+            onChange={setContent}
+            onBodyChange={setBodyContent}
+            initialJson={editorJson}
+            onJsonChange={setEditorJson}
+            onMetadataChange={setMetadataSnapshot}
+            initialMetadata={metadataSnapshot ?? undefined}
+            shouldInsertTemplate={shouldInsertTemplate}
+            mentions={mentions}
+            setMentions={setMentions}
+            onUploadStart={handleUploadStart}
+            onUploadEnd={handleUploadEnd}
+            onUploadProgress={handleUploadProgress}
+            onUploadSuccess={({ url }) => {
+              setContent((prev) => `${prev}${prev ? '\n' : ''}${url}`)
+            }}
+            onEmojiSelect={(emoji) => {
+              if (!emoji) return
+              setContent((prev) =>
+                `${prev} ${typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`}`.trim()
+              )
+            }}
+            onSaveDraft={() => publishDraft(true)}
+          />
+        )}
       </div>
       {uploadProgresses.length > 0 &&
         uploadProgresses.map(({ file, progress, cancel }, index) => (

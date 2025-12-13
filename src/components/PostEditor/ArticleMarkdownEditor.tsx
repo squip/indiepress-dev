@@ -86,6 +86,7 @@ type ArticleMarkdownEditorProps = {
   onJsonChange?: (json: any) => void
   onBodyChange?: (next: string) => void
   onMetadataChange?: (meta: MetadataSnapshot) => void
+  initialMetadata?: MetadataSnapshot
   mentions?: string[]
   setMentions?: (m: string[]) => void
   onEmojiSelect?: (emoji: any) => void
@@ -125,6 +126,7 @@ export default function ArticleMarkdownEditor({
   onJsonChange,
   onBodyChange,
   onMetadataChange,
+  initialMetadata,
   mentions,
   setMentions,
   onEmojiSelect,
@@ -306,7 +308,7 @@ export default function ArticleMarkdownEditor({
     []
   )
 
-  const notifyMetadataChange = useCallback(
+    const notifyMetadataChange = useCallback(
     (doc: any, reason?: string) => {
       const snapshot = extractMetadataFromDoc(doc, metadataDismissedRef.current)
       if (snapshot.hasMetadataBlock) {
@@ -349,6 +351,38 @@ export default function ArticleMarkdownEditor({
     },
     [debugLog]
   )
+
+  useEffect(() => {
+    const currentEditor = editorRef.current
+    if (!currentEditor) return
+    if (!initialMetadata) return
+    // If we already have metadata in the doc, don't override.
+    if (hasMetadataBlock(currentEditor.state.doc)) return
+    const metadataId = initialMetadata.metadataId || generateMetadataId()
+    try {
+      const bodyDocJson = currentEditor?.getJSON?.() ?? currentEditor.state.doc.toJSON()
+      const baseDoc = {
+        type: 'doc',
+        content: [
+          ...getTemplateContent(metadataId, initialMetadata).content,
+          ...(Array.isArray(bodyDocJson?.content) ? stripMetadataFromDocJSON(bodyDocJson).content : [])
+        ]
+      }
+      currentEditor.commands.setContent(baseDoc)
+      templateInsertedRef.current = true
+      metadataDismissedRef.current = false
+      notifyMetadataChange(currentEditor.state.doc, 'initial-metadata-apply')
+      recomputeMetadataUi(currentEditor.state, 'initial-metadata-apply')
+      debugLog('template:initial-restore', {
+        metadataId,
+        hasTitle: Boolean(initialMetadata.title),
+        hasSummary: Boolean(initialMetadata.summary),
+        hasImage: Boolean(initialMetadata.image)
+      })
+    } catch (e) {
+      debugLog('template:initial-restore-error', { message: (e as Error)?.message })
+    }
+  }, [initialMetadata, notifyMetadataChange, recomputeMetadataUi, debugLog])
 
   const refreshTemplate = useCallback(() => {
     const currentEditor = editorRef.current
@@ -1704,7 +1738,7 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
   }
 }
 
-function getTemplateContent(metadataId: string) {
+function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapshot>) {
   return {
     type: 'doc',
     content: [
@@ -1715,20 +1749,44 @@ function getTemplateContent(metadataId: string) {
           metadata: true,
           metadataId,
           metadataRole: 'title',
-          isPlaceholder: true
+          isPlaceholder: !values?.title
         },
-        content: [{ type: 'text', text: METADATA_TITLE_PLACEHOLDER }]
+        content: [
+          {
+            type: 'text',
+            text: values?.title || METADATA_TITLE_PLACEHOLDER
+          }
+        ]
       },
       {
         type: 'blockquote',
-        attrs: { metadata: true, metadataId, metadataRole: 'summary', isPlaceholder: true },
+        attrs: {
+          metadata: true,
+          metadataId,
+          metadataRole: 'summary',
+          isPlaceholder: !values?.summary
+        },
         content: [
-          { type: 'paragraph', content: [{ type: 'text', text: METADATA_SUMMARY_PLACEHOLDER }] }
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: values?.summary || METADATA_SUMMARY_PLACEHOLDER
+              }
+            ]
+          }
         ]
       },
       {
         type: 'coverPlaceholder',
-        attrs: { src: null, isTemplate: true, metadata: true, metadataId, metadataRole: 'cover' }
+        attrs: {
+          src: values?.image ?? null,
+          isTemplate: true,
+          metadata: true,
+          metadataId,
+          metadataRole: 'cover'
+        }
       },
       {
         type: 'paragraph',
