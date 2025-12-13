@@ -119,6 +119,7 @@ export default function ArticleContent({
 
     if (shouldClearCache) {
       localStorage.removeItem(cacheKey)
+      setCacheHydrated(true)
       return
     }
 
@@ -299,7 +300,11 @@ export default function ArticleContent({
         toast.success(isDraft ? t('Draft saved') : t('Article published'), {
           description
         })
-        localStorage.removeItem(cacheKey)
+        try {
+          localStorage.removeItem(cacheKey)
+        } catch (_e) {
+          /* ignore */
+        }
         close()
         return newEvent
       } catch (error) {
