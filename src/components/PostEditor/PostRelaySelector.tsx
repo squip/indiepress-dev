@@ -236,7 +236,11 @@ export default function PostRelaySelector({
       <div className="flex items-center gap-2">
         {t('Post to')}
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="px-2 flex-1 max-w-fit justify-start">
+          <Button
+            variant="outline"
+            className="px-2 flex-1 max-w-fit justify-start"
+            data-post-relay-selector
+          >
             <div className="truncate">{description}</div>
           </Button>
         </DropdownMenuTrigger>

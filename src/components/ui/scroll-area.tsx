@@ -5,10 +5,22 @@ import { cn } from '@/lib/utils'
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & { scrollBarClassName?: string }
->(({ className, scrollBarClassName, children, ...props }, ref) => (
-  <ScrollAreaPrimitive.Root className={cn('relative overflow-hidden', className)} {...props}>
-    <ScrollAreaPrimitive.Viewport ref={ref} className="h-full w-full rounded-[inherit] *:!block">
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
+    scrollBarClassName?: string
+    allowStickyChildren?: boolean
+  }
+>(({ className, scrollBarClassName, children, allowStickyChildren, ...props }, ref) => (
+  <ScrollAreaPrimitive.Root
+    className={cn('relative', allowStickyChildren ? 'overflow-visible' : 'overflow-hidden', className)}
+    {...props}
+  >
+    <ScrollAreaPrimitive.Viewport
+      ref={ref}
+      className={cn(
+        'h-full w-full rounded-[inherit] *:!block',
+        allowStickyChildren ? 'overflow-auto' : undefined
+      )}
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar className={scrollBarClassName} />

@@ -60,7 +60,11 @@ import {
   SquarePlus,
   SquareX,
   Upload,
-  LayoutTemplate
+  LayoutTemplate,
+  Heading1,
+  Heading2,
+  Heading3,
+  Heading4
 } from 'lucide-react'
 import Mention from './PostTextarea/Mention'
 import mentionSuggestion from './PostTextarea/Mention/suggestion'
@@ -114,6 +118,8 @@ export type MetadataSnapshot = {
 type MetadataControls = {
   getMode: () => MetadataControlsMode
   onGroupRemove: (metadataId?: string | null) => void
+  debugLog?: (message: string, data?: unknown) => void
+  setLastAction?: (source: string) => void
 }
 
 const METADATA_TITLE_PLACEHOLDER = 'Add a title'
@@ -142,7 +148,8 @@ export default function ArticleMarkdownEditor({
   const templateInsertedRef = useRef(false)
   const metadataControlsRef = useRef<MetadataControls>({
     getMode: () => 'hidden',
-    onGroupRemove: () => {}
+    onGroupRemove: () => {},
+    setLastAction: () => {}
   })
   const metadataModeRef = useRef<MetadataControlsMode>('hidden')
   const [metadataMode, setMetadataMode] = useState<MetadataControlsMode>('hidden')
@@ -152,6 +159,7 @@ export default function ArticleMarkdownEditor({
   const [keyboardOffset, setKeyboardOffset] = useState(0)
   const [isFabOpen, setIsFabOpen] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const hydratedFromInitialJsonRef = useRef(false)
   const keyboardOpenRef = useRef(false)
   const baselineViewportHeight = useRef<number | null>(null)
   const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
@@ -187,6 +195,8 @@ export default function ArticleMarkdownEditor({
     if (stored === 'false') return false
     return Boolean(import.meta.env.DEV)
   })
+  const lastMetadataSnapshotRef = useRef<MetadataSnapshot | null>(null)
+  const lastMetadataActionRef = useRef<string | null>(null)
   const linkSelectionRef = useRef<{ from: number; to: number } | null>(null)
 
   const debugIdRef = useRef(0)
@@ -206,6 +216,10 @@ export default function ArticleMarkdownEditor({
     },
     [debugEnabled]
   )
+  metadataControlsRef.current.debugLog = debugLog
+  metadataControlsRef.current.setLastAction = (source: string) => {
+    lastMetadataActionRef.current = source
+  }
 
   useEffect(() => {
     localStorage.setItem('article-editor-debug', debugEnabled ? 'true' : 'false')
@@ -229,16 +243,36 @@ export default function ArticleMarkdownEditor({
     if (typeof window === 'undefined') return false
     return isTouchDevice() && window.innerWidth <= 1100
   })
+  const [isTouchInput, setIsTouchInput] = useState(() => isTouchDevice())
+
+  const updateDesktopToolbarOffset = useCallback(() => {
+    if (typeof document === 'undefined' || isTouchSmallScreen) return
+    const tabs = document.querySelector('[data-post-editor-tabs]') as HTMLElement | null
+    const tabsHeight = tabs?.getBoundingClientRect().height ?? 0
+    debugLog('layout:toolbar-offset', {
+      tabsHeight,
+      hasTabs: Boolean(tabs)
+    })
+  }, [debugLog, isTouchSmallScreen])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const handleResize = () => {
-      setIsTouchSmallScreen(isTouchDevice() && window.innerWidth <= 1100)
+      const touch = isTouchDevice()
+      setIsTouchInput(touch)
+      setIsTouchSmallScreen(touch && window.innerWidth <= 1100)
     }
     handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => {
+    updateDesktopToolbarOffset()
+    if (typeof window === 'undefined') return
+    window.addEventListener('resize', updateDesktopToolbarOffset)
+    return () => window.removeEventListener('resize', updateDesktopToolbarOffset)
+  }, [updateDesktopToolbarOffset])
 
   const getMarkdown = useCallback(
     (editorInstance: ReturnType<typeof useEditor> | null) => {
@@ -309,7 +343,7 @@ export default function ArticleMarkdownEditor({
     []
   )
 
-    const notifyMetadataChange = useCallback(
+  const notifyMetadataChange = useCallback(
     (doc: any, reason?: string) => {
       const snapshot = extractMetadataFromDoc(doc, metadataDismissedRef.current)
       if (snapshot.hasMetadataBlock) {
@@ -317,6 +351,16 @@ export default function ArticleMarkdownEditor({
       } else if (templateInsertedRef.current) {
         metadataDismissedRef.current = true
       }
+      if (lastMetadataSnapshotRef.current?.hasMetadataBlock !== snapshot.hasMetadataBlock) {
+        debugLog('metadata:transition', {
+          previous: lastMetadataSnapshotRef.current?.hasMetadataBlock ?? null,
+          next: snapshot.hasMetadataBlock,
+          reason,
+          dismissed: snapshot.dismissed,
+          lastAction: lastMetadataActionRef.current
+        })
+      }
+      lastMetadataSnapshotRef.current = snapshot
       setMetadataSnapshot(snapshot)
       onMetadataChange?.(snapshot)
       debugLog('metadata:snapshot', { reason, ...snapshot })
@@ -357,6 +401,7 @@ export default function ArticleMarkdownEditor({
     const currentEditor = editorRef.current
     if (!currentEditor) return
     if (!initialMetadata) return
+    if (initialMetadata.dismissed) return
     // If we already have metadata in the doc, don't override.
     if (hasMetadataBlock(currentEditor.state.doc)) return
     const metadataId = initialMetadata.metadataId || generateMetadataId()
@@ -618,6 +663,7 @@ export default function ArticleMarkdownEditor({
       const markdown = getMarkdown(editor as any)
       const bodyMarkdown = getBodyMarkdown(editor as any)
       lastMarkdown.current = markdown
+      hydratedFromInitialJsonRef.current = true
       onChange(markdown)
       onBodyChange?.(bodyMarkdown)
       onJsonChange?.(editor.getJSON())
@@ -651,7 +697,18 @@ export default function ArticleMarkdownEditor({
       if (!editor) return
       const range = getMetadataRange(editor.state.doc, metadataId)
       if (!range) return
+      lastMetadataActionRef.current = 'group-handler'
       metadataDismissedRef.current = true
+      templateInsertedRef.current = false
+      const beforeSize = editor.state.doc.content.size
+      debugLog('metadata:group-remove', {
+        metadataId: metadataId ?? null,
+        range,
+        docSizeBefore: beforeSize,
+        dismissedRef: metadataDismissedRef.current,
+        templateInsertedRef: templateInsertedRef.current,
+        lastAction: lastMetadataActionRef.current
+      })
       editor
         .chain()
         .focus()
@@ -660,10 +717,17 @@ export default function ArticleMarkdownEditor({
           return true
         })
         .run()
+      const afterSize = editor.state.doc.content.size
       notifyMetadataChange(editor.state.doc, 'group-remove')
+      debugLog('metadata:group-remove:done', {
+        metadataId: metadataId ?? null,
+        docSizeAfter: afterSize,
+        dismissedRef: metadataDismissedRef.current,
+        templateInsertedRef: templateInsertedRef.current
+      })
       recomputeMetadataUi(editor.state, 'group-remove')
     },
-    [editor, notifyMetadataChange, recomputeMetadataUi]
+    [editor, notifyMetadataChange, recomputeMetadataUi, debugLog]
   )
 
   useEffect(() => {
@@ -679,6 +743,10 @@ export default function ArticleMarkdownEditor({
 
   useEffect(() => {
     if (!editor) return
+
+    if (hydratedFromInitialJsonRef.current) {
+      debugLog('content:skip', { reason: 'already-hydrated', valueLength: value?.length ?? 0 })
+    }
 
     const applyContent = (content: any, reason: string) => {
       debugLog('content:apply', {
@@ -711,6 +779,51 @@ export default function ArticleMarkdownEditor({
     // Insert default template when empty and requested
     if (shouldInsertTemplate && !templateInsertedRef.current) {
       const currentText = editor.state.doc.textContent?.trim() ?? ''
+      const isDocTriviallyEmpty = !currentText && editor.state.doc.childCount <= 1
+      if (isDocTriviallyEmpty) {
+        if (metadataDismissedRef.current) {
+          debugLog('template:ready', {
+            reason: 'reset-dismissed',
+            dismissedRef: metadataDismissedRef.current
+          })
+          metadataDismissedRef.current = false
+        }
+        debugLog('template:force', {
+          currentText,
+          childCount: editor.state.doc.childCount,
+          shouldInsertTemplate,
+          dismissedRef: metadataDismissedRef.current
+        })
+        const metadataId = generateMetadataId()
+        editor
+          .chain()
+          .clearContent()
+          .insertContent(getTemplateContent(metadataId))
+          .command(({ tr, dispatch }) => {
+            // Place the caret in the body paragraph after the metadata block.
+            const end = tr.doc.content.size
+            try {
+              const Selection = (editor.state.selection as any).constructor
+              const pos = Math.max(1, end - 1)
+              tr.setSelection(Selection.near(tr.doc.resolve(pos)))
+            } catch {
+              /* ignore */
+            }
+            if (dispatch) dispatch(tr)
+            return true
+          })
+          .run()
+        templateInsertedRef.current = true
+        metadataDismissedRef.current = false
+        const nextMarkdown = getMarkdown(editor as any)
+        lastMarkdown.current = nextMarkdown
+        if (nextMarkdown !== value) {
+          onChange(nextMarkdown)
+        }
+        notifyMetadataChange(editor.state.doc, 'template-inserted')
+        return
+      }
+
       debugLog('template:check', {
         currentText,
         childCount: editor.state.doc.childCount,
@@ -787,10 +900,20 @@ export default function ArticleMarkdownEditor({
         initialJsonMatchesRef: initialJson === initialJsonRef.current,
         initialJsonSummary: summarizeContent(initialJson)
       })
-    } else if (initialJsonProvided && initialJson !== initialJsonRef.current) {
+    } else if (
+      initialJsonProvided &&
+      !hydratedFromInitialJsonRef.current &&
+      initialJson !== initialJsonRef.current
+    ) {
       initialJsonRef.current = initialJson
+      hydratedFromInitialJsonRef.current = true
       applyContent(initialJson, 'initial-json')
       lastMarkdown.current = getMarkdown(editor as any)
+      return
+    }
+
+    if (hydratedFromInitialJsonRef.current) {
+      debugLog('content:skip', { reason: 'already-hydrated-post-json' })
       return
     }
 
@@ -880,6 +1003,24 @@ export default function ArticleMarkdownEditor({
     return keyboardOpen
   }, [isTouchSmallScreen, keyboardOpen, hasFocus])
 
+  const emojiEnabled = useMemo(
+    () => !isTouchInput && !isTouchSmallScreen,
+    [isTouchInput, isTouchSmallScreen]
+  )
+
+  useEffect(() => {
+    debugLog('emoji:availability', { enabled: emojiEnabled, isTouchInput, isTouchSmallScreen })
+  }, [emojiEnabled, isTouchInput, isTouchSmallScreen, debugLog])
+
+  const editorContentClass = useMemo(
+    () =>
+      cn(
+        'article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere min-h-[290px]',
+        isTouchSmallScreen ? 'max-h-[45vh] sm:max-h-none overflow-auto' : 'max-h-none overflow-visible'
+      ),
+    [isTouchSmallScreen]
+  )
+
   if (!editor) return null
 
   const toolbarBody = (
@@ -910,7 +1051,15 @@ export default function ArticleMarkdownEditor({
       </ToolbarGroup>
       <ToolbarDivider />
       <ToolbarGroup>
-        <HeadingMenu editor={editor} shouldIgnoreTap={() => skipToolbarTapRef.current} />
+        {!isTouchSmallScreen ? (
+          <HeadingMenu
+            editor={editor}
+            shouldIgnoreTap={() => skipToolbarTapRef.current}
+            debugLog={debugLog}
+          />
+        ) : (
+          <HeadingButtonsMobile editor={editor} debugLog={debugLog} />
+        )}
         <ToolbarButton
           icon={Bold}
           label="Bold"
@@ -996,46 +1145,67 @@ export default function ArticleMarkdownEditor({
             debugLog('toolbar:upload-insert', { url, type })
           }}
           accept="image/*,video/*,audio/*"
-          onPickerOpen={() => setIsFabOpen(false)}
+          onPickerOpen={() => {
+            debugLog('toolbar:upload-picker-open', { source: 'article-toolbar' })
+            setIsFabOpen(false)
+          }}
         >
           <ToolbarButton
             icon={ImageIcon}
             label="Upload media"
-            onClick={() => {}}
+            onClick={() => {
+              debugLog('toolbar:upload-trigger', { source: 'article-toolbar' })
+            }}
             shouldIgnoreTap={() => skipToolbarTapRef.current}
+            allowEventPropagation
           />
         </Uploader>
-        <EmojiPickerDialog
-          onEmojiClick={(emoji) => {
-            onEmojiSelect?.(emoji)
-            if (!emoji) return
-            editor
-              .chain()
-              .focus()
-              .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
-              .run()
-            debugLog('toolbar:emoji-insert', {
-              emoji: typeof emoji === 'string' ? emoji : emoji?.shortcode
-            })
-          }}
-        >
-          <ToolbarButton
-            icon={Smile}
-            label="Emoji"
-            onClick={() => {}}
-            shouldIgnoreTap={() => skipToolbarTapRef.current}
-          />
-        </EmojiPickerDialog>
+        {emojiEnabled && (
+          <EmojiPickerDialog
+            onOpenChange={(open, surface) =>
+              debugLog('emoji:toggle', { open, surface, source: 'article-toolbar' })
+            }
+            onEmojiClick={(emoji) => {
+              onEmojiSelect?.(emoji)
+              if (!emoji) return
+              editor
+                .chain()
+                .focus()
+                .insertContent(typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`)
+                .run()
+              debugLog('toolbar:emoji-insert', {
+                emoji: typeof emoji === 'string' ? emoji : emoji?.shortcode
+              })
+            }}
+          >
+            <ToolbarButton
+              icon={Smile}
+              label="Emoji"
+              onClick={() => {
+                debugLog('toolbar:emoji-trigger', { source: 'article-toolbar' })
+              }}
+              onPointerDown={(e) => {
+                debugLog('toolbar:emoji-pointer', {
+                  source: 'article-toolbar',
+                  button: e.button,
+                  type: e.pointerType
+                })
+              }}
+              shouldIgnoreTap={() => skipToolbarTapRef.current}
+              allowEventPropagation
+            />
+          </EmojiPickerDialog>
+        )}
         <ToolbarButton
           icon={Minus}
           label="Horizontal rule"
-            onClick={() => {
-              debugLog('toolbar:hr')
-              editor.chain().focus().setHorizontalRule().run()
-            }}
-            isLast
-            shouldIgnoreTap={() => skipToolbarTapRef.current}
-          />
+          onClick={() => {
+            debugLog('toolbar:hr')
+            editor.chain().focus().setHorizontalRule().run()
+          }}
+          isLast
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
       </ToolbarGroup>
       <ToolbarDivider />
       <ToolbarGroup>
@@ -1165,7 +1335,10 @@ export default function ArticleMarkdownEditor({
           }}
         />
       {!isTouchSmallScreen && (
-        <div className="article-toolbar flex flex-wrap items-center gap-2 sticky top-0 z-30 bg-background/90 backdrop-blur supports-[backdrop-filter]:backdrop-blur px-1 py-1">
+        <div
+          className="article-toolbar flex flex-wrap items-center gap-2 sticky z-30 bg-background border-b border-border shadow-sm px-1 py-1"
+          style={{ top: 0 }}
+        >
           {toolbarBody}
         </div>
       )}
@@ -1297,7 +1470,7 @@ export default function ArticleMarkdownEditor({
       <EditorContent
         editor={editor}
         data-metadata-mode={metadataMode}
-        className="article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere max-h-[45vh] sm:max-h-none overflow-auto min-h-[290px]"
+        className={editorContentClass}
       />
       <DebugConsole
         enabled={debugEnabled}
@@ -1314,38 +1487,127 @@ export default function ArticleMarkdownEditor({
 
 function HeadingMenu({
   editor,
-  shouldIgnoreTap
+  shouldIgnoreTap,
+  debugLog
 }: {
   editor: NonNullable<ReturnType<typeof useEditor>>
   shouldIgnoreTap: () => boolean
+  debugLog: (message: string, data?: unknown) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const pointerToggledRef = useRef(false)
   const isHeadingActive = (level: Level) => editor.isActive('heading', { level })
+
+  useEffect(() => {
+    debugLog('heading-menu:open', { open })
+  }, [debugLog, open])
+
+  const handleParagraph = () => {
+    debugLog('heading-menu:select', { selection: 'paragraph' })
+    editor.chain().focus().setParagraph().run()
+  }
+
+  const handleHeading = (lvl: Level) => {
+    debugLog('heading-menu:select', {
+      selection: `heading-${lvl}`,
+      wasActive: isHeadingActive(lvl)
+    })
+    editor.chain().focus().toggleHeading({ level: lvl }).run()
+  }
+
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        pointerToggledRef.current = false
+        debugLog('heading-menu:open-change', { next, source: 'radix' })
+        setOpen(next)
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <ToolbarButton
           icon={Type}
-          label="Style"
-          active={isHeadingActive(1) || isHeadingActive(2) || isHeadingActive(3) || isHeadingActive(4)}
+          label="Type"
+          active={
+            isHeadingActive(1) ||
+            isHeadingActive(2) ||
+            isHeadingActive(3) ||
+            isHeadingActive(4)
+          }
           isFirst
           shouldIgnoreTap={shouldIgnoreTap}
-          onClick={() => editor.chain().focus().run()}
+          onClick={() => {
+            if (pointerToggledRef.current) {
+              pointerToggledRef.current = false
+              debugLog('heading-menu:click-skip', { reason: 'pointer-already-toggled' })
+              return
+            }
+            debugLog('heading-menu:trigger')
+            setOpen((prev) => {
+              const next = !prev
+              debugLog('heading-menu:toggle', { next, reason: 'click' })
+              return next
+            })
+            editor.chain().focus().run()
+          }}
+          onPointerDown={(e) => {
+            // Ensure Radix sees a pointer event and we also toggle for safety.
+            debugLog('heading-menu:pointer', { button: e.button, type: e.pointerType })
+            pointerToggledRef.current = true
+            setOpen((prev) => {
+              const next = !prev
+              debugLog('heading-menu:toggle', { next, reason: 'pointer' })
+              return next
+            })
+          }}
+          allowEventPropagation
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-48">
-        <DropdownMenuItem onSelect={() => editor.chain().focus().setParagraph().run()}>
-          Paragraph
-        </DropdownMenuItem>
-        {[1, 2, 3, 4, 5, 6].map((lvl) => (
-          <DropdownMenuItem
-            key={lvl}
-            onSelect={() => editor.chain().focus().toggleHeading({ level: lvl as Level }).run()}
-          >
+        <DropdownMenuItem onSelect={handleParagraph}>Paragraph</DropdownMenuItem>
+        {[1, 2, 3, 4].map((lvl) => (
+          <DropdownMenuItem key={lvl} onSelect={() => handleHeading(lvl as Level)}>
             {`Heading ${lvl}`}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function HeadingButtonsMobile({
+  editor,
+  debugLog
+}: {
+  editor: NonNullable<ReturnType<typeof useEditor>>
+  debugLog: (message: string, data?: unknown) => void
+}) {
+  const makeHeading = (
+    level: Level,
+    Icon: React.ComponentType<{ className?: string; strokeWidth?: number | string }>,
+    className: string,
+    strokeWidth: number
+  ) => (
+    <ToolbarButton
+      key={level}
+      icon={(props) => <Icon className={cn(props.className, className)} strokeWidth={strokeWidth} />}
+      label={`H${level}`}
+      onClick={() => {
+        debugLog('heading:mobile', { level })
+        editor.chain().focus().toggleHeading({ level }).run()
+      }}
+      active={editor.isActive('heading', { level })}
+      allowEventPropagation
+    />
+  )
+
+  return (
+    <>
+      {makeHeading(1 as Level, Heading1, 'h-5 w-5', 2.2)}
+      {makeHeading(2 as Level, Heading2, 'h-5 w-5', 2)}
+      {makeHeading(3 as Level, Heading3, 'h-4 w-4', 2)}
+      {makeHeading(4 as Level, Heading4, 'h-4 w-4', 1.8)}
+    </>
   )
 }
 
@@ -1364,7 +1626,7 @@ function ToolbarDivider() {
 const ToolbarButton = React.forwardRef<
   HTMLButtonElement,
   {
-    icon: React.ComponentType<{ className?: string }>
+    icon: React.ComponentType<{ className?: string; strokeWidth?: number | string }>
     label: string
     onClick: () => void
     active?: boolean
@@ -1373,8 +1635,10 @@ const ToolbarButton = React.forwardRef<
     isLast?: boolean
     withText?: boolean
     shouldIgnoreTap?: () => boolean
+    allowEventPropagation?: boolean
+    onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>) => void
   }
->(({ icon: Icon, label, onClick, active, disabled, isFirst, isLast, withText, shouldIgnoreTap }, ref) => {
+>(({ icon: Icon, label, onClick, active, disabled, isFirst, isLast, withText, shouldIgnoreTap, allowEventPropagation, onPointerDown }, ref) => {
   return (
     <Button
       ref={ref}
@@ -1388,12 +1652,17 @@ const ToolbarButton = React.forwardRef<
         isFirst && 'rounded-l-md',
         isLast && 'rounded-r-md border-r-0'
       )}
+      onPointerDown={onPointerDown}
       onMouseDown={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
+        if (!allowEventPropagation) {
+          e.preventDefault()
+          e.stopPropagation()
+        }
       }}
       onClick={(e) => {
-        e.stopPropagation()
+        if (!allowEventPropagation) {
+          e.stopPropagation()
+        }
         if (shouldIgnoreTap?.()) return
         if (isTouchDevice() && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(50)
@@ -1513,7 +1782,7 @@ function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<Meta
     addOptions() {
       return {
         ...this.parent?.(),
-        levels: [1, 2, 3, 4, 5, 6] as Level[]
+        levels: [1, 2, 3, 4] as Level[]
       }
     },
     addAttributes() {
@@ -1526,9 +1795,19 @@ function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<Meta
       }
     },
     addNodeView() {
-      return ReactNodeViewRenderer((props) => (
+      const renderer = ReactNodeViewRenderer((props) => (
         <MetadataHeadingView {...props} controlsRef={controlsRef} />
       ))
+      const parent = this.parent?.()
+      return (props) => {
+        if (props.node?.attrs?.metadata) {
+          return renderer(props)
+        }
+        if (parent) {
+          return parent(props)
+        }
+        return renderer(props)
+      }
     }
   })
 }
@@ -1923,9 +2202,6 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
   if (snapshot.hasMetadataBlock) {
     snapshot.dismissed = false
   }
-  if (!snapshot.hasMetadataBlock) {
-    snapshot.dismissed = true
-  }
   snapshot.isTemplatePristine =
     snapshot.hasMetadataBlock &&
     !snapshot.title &&
@@ -2317,10 +2593,13 @@ function MetadataHeadingView(props: any) {
   useMetadataRerender(editor)
   const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
   const metadataId = node?.attrs?.metadataId
+  const isMetadata = Boolean(node?.attrs?.metadata)
   const isPlaceholder = node?.attrs?.isPlaceholder
   const showGroupDelete = mode === 'group'
-  const showFieldDelete = mode === 'field'
+  const showFieldDelete = mode === 'field' && isMetadata
   const text = node?.textContent ?? ''
+  const level = Math.min(6, Math.max(1, Number(node?.attrs?.level) || 1))
+  const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements
 
   const clearPlaceholder = () => {
     if (!isPlaceholder || typeof getPos !== 'function') return
@@ -2345,12 +2624,19 @@ function MetadataHeadingView(props: any) {
       data-metadata-id={metadataId ?? undefined}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
     >
-      {showGroupDelete && (
+      {showGroupDelete && isMetadata && (
         <button
           type="button"
           className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
+            controlsRef?.current?.setLastAction?.('group-button')
+            controlsRef?.current?.debugLog?.('metadata:delete-click', {
+              role: 'title',
+              metadataId,
+              mode,
+              action: 'group-button'
+            })
             controlsRef?.current?.onGroupRemove?.(metadataId)
           }}
         >
@@ -2363,13 +2649,20 @@ function MetadataHeadingView(props: any) {
           className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
+            controlsRef?.current?.setLastAction?.('field-button')
+            controlsRef?.current?.debugLog?.('metadata:delete-click', {
+              role: 'title',
+              metadataId,
+              mode,
+              action: 'field-button'
+            })
             deleteNode?.()
           }}
         >
           ×
         </button>
       )}
-      <h1
+      <HeadingTag
         className={cn(
           'text-3xl font-bold leading-snug focus:outline-none',
           isPlaceholder && text === METADATA_TITLE_PLACEHOLDER ? 'text-muted-foreground' : ''
@@ -2377,7 +2670,7 @@ function MetadataHeadingView(props: any) {
         onFocus={clearPlaceholder}
       >
         <NodeViewContent />
-      </h1>
+      </HeadingTag>
     </NodeViewWrapper>
   )
 }
@@ -2420,6 +2713,12 @@ function MetadataSummaryView(props: any) {
           className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
+            controlsRef?.current?.setLastAction?.('field-button')
+            controlsRef?.current?.debugLog?.('metadata:delete-click', {
+              role: 'summary',
+              metadataId,
+              action: 'field-button'
+            })
             deleteNode?.()
           }}
         >
@@ -2470,6 +2769,12 @@ function CoverPlaceholderView(props: any) {
             className="absolute right-1 top-1 z-10 rounded-full bg-background/90 border text-xs px-2 py-1 shadow hover:bg-muted"
             onClick={(e: React.MouseEvent) => {
               e.stopPropagation()
+              controlsRef?.current?.setLastAction?.('field-button')
+              controlsRef?.current?.debugLog?.('metadata:delete-click', {
+                role: 'cover',
+                metadataId,
+                action: 'field-button'
+              })
               deleteNode?.()
             }}
           >
@@ -2501,6 +2806,12 @@ function CoverPlaceholderView(props: any) {
           className="absolute right-1 top-1 z-10 rounded-full bg-background/90 border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e: React.MouseEvent) => {
             e.stopPropagation()
+            controlsRef?.current?.setLastAction?.('field-button')
+            controlsRef?.current?.debugLog?.('metadata:delete-click', {
+              role: 'cover',
+              metadataId,
+              action: 'field-button'
+            })
             deleteNode?.()
           }}
         >

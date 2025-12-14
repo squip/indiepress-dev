@@ -209,9 +209,17 @@ export default function ArticleContent({
   const shouldInsertTemplate = useMemo(() => {
     const hasExisting = Boolean(existingEvent)
     const hasMeaningfulCache =
-      !metadataSnapshot?.isTemplatePristine &&
-      (Boolean(content?.trim?.()) || Boolean(editorJson) || Boolean(bodyContent?.trim?.()))
-    return !hasExisting && !hasMeaningfulCache
+      Boolean(content?.trim?.()) || Boolean(editorJson) || Boolean(bodyContent?.trim?.())
+    const hasMetadataValues =
+      Boolean(metadataSnapshot?.title?.trim?.()) ||
+      Boolean(metadataSnapshot?.summary?.trim?.()) ||
+      Boolean(metadataSnapshot?.image?.trim?.())
+
+    if (hasExisting) return false
+    if (metadataSnapshot?.dismissed) return false
+    if (hasMetadataValues) return false
+    if (hasMeaningfulCache) return false
+    return true
   }, [existingEvent, content, bodyContent, editorJson, metadataSnapshot])
 
   const buildDraft = (isDraft: boolean) => {
@@ -338,8 +346,8 @@ export default function ArticleContent({
   }
 
   return (
-    <div className="space-y-3 flex flex-col max-h-[calc(100vh-180px)] sm:max-h-none">
-      <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
+    <div className="space-y-3 flex flex-col">
+      <div className="space-y-2 flex-1 min-h-0">
         {!cacheHydrated ? (
           <div className="text-sm text-muted-foreground">{t('Loading...')}</div>
         ) : (
@@ -350,7 +358,7 @@ export default function ArticleContent({
             initialJson={editorJson}
             onJsonChange={setEditorJson}
             onMetadataChange={setMetadataSnapshot}
-            initialMetadata={metadataSnapshot ?? undefined}
+            initialMetadata={metadataSnapshot?.dismissed ? undefined : metadataSnapshot ?? undefined}
             shouldInsertTemplate={shouldInsertTemplate}
             mentions={mentions}
             setMentions={setMentions}
@@ -370,82 +378,88 @@ export default function ArticleContent({
           />
         )}
       </div>
-      {uploadProgresses.length > 0 &&
-        uploadProgresses.map(({ file, progress, cancel }, index) => (
-          <div key={`${file.name}-${index}`} className="mt-2 flex items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs text-muted-foreground mb-1">
-                {file.name ?? t('Uploading...')}
+      <div className="sticky bottom-0 left-0 right-0 bg-background pt-2 space-y-2">
+        {uploadProgresses.length > 0 &&
+          uploadProgresses.map(({ file, progress, cancel }, index) => (
+            <div key={`${file.name}-${index}`} className="mt-2 flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs text-muted-foreground mb-1">
+                  {file.name ?? t('Uploading...')}
+                </div>
+                <div className="h-0.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-[width] duration-200 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
               </div>
-              <div className="h-0.5 w-full rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-[width] duration-200 ease-out"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  cancel?.()
+                  handleUploadEnd(file)
+                }}
+                className="text-muted-foreground hover:text-foreground"
+                title={t('Cancel')}
+              >
+                ×
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                cancel?.()
-                handleUploadEnd(file)
-              }}
-              className="text-muted-foreground hover:text-foreground"
-              title={t('Cancel')}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      <PostRelaySelector
-        setIsProtectedEvent={setIsProtectedEvent}
-        setAdditionalRelayUrls={setAdditionalRelayUrls}
-        parentEvent={existingEvent}
-        openFrom={openFrom}
-      />
-      <div className="flex flex-wrap items-center gap-2 justify-end max-sm:hidden">
-        <Button
-          variant="secondary"
-          onClick={(e: MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation()
-            close()
-          }}
-        >
-          {t('Cancel')}
-        </Button>
-        <Button
-          disabled={!canPublish || posting}
-          onClick={(e: MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation()
-            publishDraft(false)
-          }}
-        >
-          {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
-          {t('Publish')}
-        </Button>
-      </div>
-      <div className="flex gap-2 items-center justify-around sm:hidden">
-        <Button
-          className="w-full"
-          variant="secondary"
-          onClick={(e: MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation()
-            close()
-          }}
-        >
-          {t('Cancel')}
-        </Button>
-        <Button
-          className="w-full"
-          disabled={!canPublish || posting}
-          onClick={(e: MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation()
-            publishDraft(false)
-          }}
-        >
-          {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
-          {t('Publish')}
-        </Button>
+          ))}
+        <PostRelaySelector
+          setIsProtectedEvent={setIsProtectedEvent}
+          setAdditionalRelayUrls={setAdditionalRelayUrls}
+          parentEvent={existingEvent}
+          openFrom={openFrom}
+        />
+        <div className="flex flex-wrap items-center gap-2 justify-end max-sm:hidden">
+          <Button
+            data-post-cancel-button
+            variant="secondary"
+            onClick={(e: MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation()
+              close()
+            }}
+          >
+            {t('Cancel')}
+          </Button>
+          <Button
+            data-post-publish-button
+            disabled={!canPublish || posting}
+            onClick={(e: MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation()
+              publishDraft(false)
+            }}
+          >
+            {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
+            {t('Publish')}
+          </Button>
+        </div>
+        <div className="flex gap-2 items-center justify-around sm:hidden">
+          <Button
+            data-post-cancel-button
+            className="w-full"
+            variant="secondary"
+            onClick={(e: MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation()
+              close()
+            }}
+          >
+            {t('Cancel')}
+          </Button>
+          <Button
+            data-post-publish-button
+            className="w-full"
+            disabled={!canPublish || posting}
+            onClick={(e: MouseEvent<HTMLButtonElement>) => {
+              e.stopPropagation()
+              publishDraft(false)
+            }}
+          >
+            {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
+            {t('Publish')}
+          </Button>
+        </div>
       </div>
     </div>
   )
