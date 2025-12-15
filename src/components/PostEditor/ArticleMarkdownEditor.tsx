@@ -100,7 +100,7 @@ type ArticleMarkdownEditorProps = {
   onUploadSuccess?: ({ url, tags }: { url: string; tags: string[][] }) => void
   onSaveDraft?: () => void
   shouldInsertTemplate?: boolean
-  renderToolbar?: (toolbar: React.ReactNode) => React.ReactNode
+  renderToolbar?: (toolbar: React.ReactNode) => void
 }
 
 type MetadataControlsMode = 'hidden' | 'group' | 'field'
@@ -1293,19 +1293,23 @@ export default function ArticleMarkdownEditor({
     </>
   )
 
-  const toolbarElement = (
-    <div
-      className="article-toolbar flex flex-wrap items-center gap-2 bg-background border-b border-border shadow-sm px-2 py-1"
-      style={{ top: 'var(--post-editor-header-height, 0px)' }}
-    >
-      {toolbarBody}
-    </div>
+  const toolbarElement = useMemo(
+    () => (
+      <div
+        className="article-toolbar flex flex-wrap items-center gap-2 bg-background border-b border-border shadow-sm px-2 py-1"
+        style={{ top: 'var(--post-editor-header-height, 0px)' }}
+      >
+        {toolbarBody}
+      </div>
+    ),
+    [toolbarBody]
   )
 
-  const toolbarRendered =
-    !isTouchSmallScreen && renderToolbar
-      ? renderToolbar(toolbarElement)
-      : null
+  useEffect(() => {
+    if (!isTouchSmallScreen && renderToolbar) {
+      renderToolbar(toolbarElement)
+    }
+  }, [isTouchSmallScreen, renderToolbar, toolbarElement])
 
   return (
     <div className="article-editor space-y-2">
@@ -1358,7 +1362,6 @@ export default function ArticleMarkdownEditor({
           {toolbarBody}
         </div>
       )}
-      {toolbarRendered}
       {floatingToolbarVisible &&
         typeof document !== 'undefined' &&
         createPortal(

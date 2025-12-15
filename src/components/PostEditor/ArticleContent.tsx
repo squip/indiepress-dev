@@ -4,7 +4,7 @@ import { createLongFormDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
 import postEditorCache from '@/services/post-editor-cache.service'
 import { Event } from '@nostr/tools/wasm'
-import { useEffect, useMemo, useState, MouseEvent, ReactNode } from 'react'
+import { useEffect, useMemo, useState, MouseEvent, ReactNode, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { LoaderCircle } from 'lucide-react'
@@ -351,7 +351,10 @@ export default function ArticleContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  let externalToolbar: ReactNode | null = null
+  const [toolbar, setToolbar] = useState<ReactNode | null>(null)
+  const handleRenderToolbar = useCallback((node: ReactNode) => {
+    setToolbar(node)
+  }, [])
 
   const body = (
     <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
@@ -382,10 +385,7 @@ export default function ArticleContent({
             )
           }}
           onSaveDraft={() => publishDraft(true)}
-          renderToolbar={(toolbar) => {
-            externalToolbar = toolbar
-            return null
-          }}
+          renderToolbar={handleRenderToolbar}
         />
       )}
     </div>
@@ -477,5 +477,5 @@ export default function ArticleContent({
     </div>
   )
 
-  return renderSections({ header: externalToolbar ?? undefined, body, footer })
+  return renderSections({ header: toolbar ?? undefined, body, footer })
 }
