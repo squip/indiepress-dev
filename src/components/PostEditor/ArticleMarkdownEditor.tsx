@@ -1017,8 +1017,10 @@ export default function ArticleMarkdownEditor({
   const editorContentClass = useMemo(
     () =>
       cn(
-        'article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere min-h-[290px]',
-        isTouchSmallScreen ? 'max-h-[45vh] sm:max-h-none overflow-auto' : 'max-h-none overflow-visible'
+        'article-prose tiptap prose prose-zinc dark:prose-invert max-w-none break-words overflow-wrap-anywhere min-h-[290px] w-full',
+        isTouchSmallScreen
+          ? 'max-h-[45vh] sm:max-h-none overflow-y-auto overflow-x-hidden'
+          : 'max-h-none overflow-visible'
       ),
     [isTouchSmallScreen]
   )

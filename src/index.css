@@ -56,6 +56,12 @@
     pointer-events: none;
   }
 
+  /* Prevent horizontal drag on mobile article editor */
+  .article-editor__content {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   .scrollbar-hide {
     -ms-overflow-style: none; /* Internet Explorer 10+ */
     scrollbar-width: none; /* Firefox */
