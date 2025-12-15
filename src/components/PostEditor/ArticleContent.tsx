@@ -53,6 +53,7 @@ export default function ArticleContent({
   >([])
   const [metadataSnapshot, setMetadataSnapshot] = useState<MetadataSnapshot | null>(null)
   const [cacheHydrated, setCacheHydrated] = useState(false)
+  const [templateResetKey, setTemplateResetKey] = useState(0)
 
   const cacheKey = useMemo(
     () => `article-editor:${existingEvent?.id ?? 'new'}`,
@@ -111,7 +112,7 @@ export default function ArticleContent({
     if (metadataSnapshot.hasMetadataBlock) {
       setTitle(metadataSnapshot.title ?? '')
       setSummary(metadataSnapshot.summary ?? '')
-      setImage(metadataSnapshot.image ?? '')
+      setImage(metadataSnapshot.coverDismissed ? '' : metadataSnapshot.image ?? '')
     } else if (metadataSnapshot.dismissed) {
       setTitle('')
       setSummary('')
@@ -199,7 +200,7 @@ export default function ArticleContent({
       return {
         title: metadataSnapshot.title,
         summary: metadataSnapshot.summary,
-        image: metadataSnapshot.image
+        image: metadataSnapshot.coverDismissed ? undefined : metadataSnapshot.image
       }
     }
     if (existingEvent) {
@@ -213,20 +214,36 @@ export default function ArticleContent({
   }, [metadataSnapshot, existingEvent, title, summary, image])
 
   const shouldInsertTemplate = useMemo(() => {
-    const hasExisting = Boolean(existingEvent)
+    if (existingEvent) return false
     const hasMeaningfulCache =
       Boolean(content?.trim?.()) || Boolean(editorJson) || Boolean(bodyContent?.trim?.())
-    const hasMetadataValues =
-      Boolean(metadataSnapshot?.title?.trim?.()) ||
-      Boolean(metadataSnapshot?.summary?.trim?.()) ||
-      Boolean(metadataSnapshot?.image?.trim?.())
-
-    if (hasExisting) return false
-    if (metadataSnapshot?.dismissed) return false
-    if (hasMetadataValues) return false
+    if (templateResetKey > 0) {
+      if (metadataSnapshot?.hasMetadataBlock) return false
+      return true
+    }
+    if (metadataSnapshot?.hasMetadataBlock) return false
     if (hasMeaningfulCache) return false
     return true
-  }, [existingEvent, content, bodyContent, editorJson, metadataSnapshot])
+  }, [existingEvent, content, bodyContent, editorJson, metadataSnapshot, templateResetKey])
+
+  const handleClearEditor = useCallback(() => {
+    setTitle('')
+    setSummary('')
+    setImage('')
+    setContent('')
+    setBodyContent('')
+    setEditorJson(null)
+    setMetadataSnapshot(null)
+    setHashtagsText('')
+    setIdentifier(randomString(12))
+    setPublishedAt(undefined)
+    try {
+      localStorage.removeItem(cacheKey)
+    } catch (_e) {
+      /* ignore */
+    }
+    setTemplateResetKey((prev) => prev + 1)
+  }, [cacheKey])
 
   const buildDraft = (isDraft: boolean) => {
     const dismissedMetadata = metadataSnapshot?.dismissed
@@ -375,6 +392,7 @@ export default function ArticleContent({
           onUploadStart={handleUploadStart}
           onUploadEnd={handleUploadEnd}
           onUploadProgress={handleUploadProgress}
+          onClearEditor={handleClearEditor}
           onUploadSuccess={({ url }) => {
             setContent((prev) => `${prev}${prev ? '\n' : ''}${url}`)
           }}
@@ -386,6 +404,7 @@ export default function ArticleContent({
           }}
           onSaveDraft={() => publishDraft(true)}
           renderToolbar={handleRenderToolbar}
+          templateResetKey={templateResetKey}
         />
       )}
     </div>

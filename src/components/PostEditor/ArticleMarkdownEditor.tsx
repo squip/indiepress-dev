@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState
 } from 'react'
-import { Node } from '@tiptap/core'
+import { Node, Extension } from '@tiptap/core'
 import {
   EditorContent,
   NodeViewContent,
@@ -64,7 +64,8 @@ import {
   Heading1,
   Heading2,
   Heading3,
-  Heading4
+  Heading4,
+  Trash2
 } from 'lucide-react'
 import Mention from './PostTextarea/Mention'
 import mentionSuggestion from './PostTextarea/Mention/suggestion'
@@ -101,6 +102,8 @@ type ArticleMarkdownEditorProps = {
   onSaveDraft?: () => void
   shouldInsertTemplate?: boolean
   renderToolbar?: (toolbar: React.ReactNode) => void
+  onClearEditor?: () => void
+  templateResetKey?: number
 }
 
 type MetadataControlsMode = 'hidden' | 'group' | 'field'
@@ -114,6 +117,7 @@ export type MetadataSnapshot = {
   hasMetadataBlock: boolean
   dismissed: boolean
   isTemplatePristine: boolean
+  coverDismissed?: boolean
 }
 
 type MetadataControls = {
@@ -143,10 +147,12 @@ export default function ArticleMarkdownEditor({
   onUploadSuccess,
   onSaveDraft,
   shouldInsertTemplate,
-  renderToolbar
+  renderToolbar,
+  onClearEditor,
+  templateResetKey
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
-  const initialJsonRef = useRef<any>(initialJson)
+  const initialJsonRef = useRef<any>(sanitizeContent(initialJson))
   const templateInsertedRef = useRef(false)
   const metadataControlsRef = useRef<MetadataControls>({
     getMode: () => 'hidden',
@@ -156,6 +162,7 @@ export default function ArticleMarkdownEditor({
   const metadataModeRef = useRef<MetadataControlsMode>('hidden')
   const [metadataMode, setMetadataMode] = useState<MetadataControlsMode>('hidden')
   const metadataDismissedRef = useRef(false)
+  const allowMetadataRemovalRef = useRef(false)
   const [metadataSnapshot, setMetadataSnapshot] = useState<MetadataSnapshot | null>(null)
   const [hasFocus, setHasFocus] = useState(false)
   const [keyboardOffset, setKeyboardOffset] = useState(0)
@@ -163,6 +170,7 @@ export default function ArticleMarkdownEditor({
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const hydratedFromInitialJsonRef = useRef(false)
   const keyboardOpenRef = useRef(false)
+  const lastResetKeyRef = useRef<number | undefined>(undefined)
   const baselineViewportHeight = useRef<number | null>(null)
   const caretRafRef = useRef<number | null>(null)
   const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
@@ -223,6 +231,18 @@ export default function ArticleMarkdownEditor({
   metadataControlsRef.current.setLastAction = (source: string) => {
     lastMetadataActionRef.current = source
   }
+
+  const withMetadataRemovalAllowed = useCallback(
+    (fn: () => void) => {
+      allowMetadataRemovalRef.current = true
+      try {
+        fn()
+      } finally {
+        allowMetadataRemovalRef.current = false
+      }
+    },
+    []
+  )
 
   useEffect(() => {
     localStorage.setItem('article-editor-debug', debugEnabled ? 'true' : 'false')
@@ -304,6 +324,49 @@ export default function ArticleMarkdownEditor({
       hasTabs: Boolean(tabs)
     })
   }, [debugLog, isTouchSmallScreen])
+
+  const guardMetadataDeletion = useCallback(
+    (view: any, event: KeyboardEvent) => {
+      if (allowMetadataRemovalRef.current) return false
+      const isDeleteKey =
+        event.key === 'Backspace' ||
+        event.key === 'Delete' ||
+        ((event.metaKey || event.ctrlKey) && (event.key === 'Backspace' || event.key === 'Delete'))
+      if (!isDeleteKey) return false
+      const { state } = view
+      const titleNode = findMetadataNodeByRole(state.doc, 'title')
+      const summaryNode = findMetadataNodeByRole(state.doc, 'summary')
+      const { from, to, empty, $from } = state.selection
+      const protectedNodes = [titleNode, summaryNode].filter(
+        (node): node is { from: number; to: number; node: any } => Boolean(node)
+      )
+      const overlapsProtected = protectedNodes.some(
+        (node) => from < node.to && to > node.from
+      )
+      if (overlapsProtected) {
+        event.preventDefault()
+        return true
+      }
+      if (!empty) return false
+      const role =
+        (($from.parent?.attrs?.metadataRole as MetadataRole | undefined) ||
+          inferMetadataRole($from.parent)) ?? null
+      if (role === 'title' || role === 'summary') {
+        const offset = $from.parentOffset
+        const parentSize = $from.parent?.content?.size ?? 0
+        if (
+          (event.key === 'Backspace' && offset === 0) ||
+          (event.key === 'Delete' && offset === parentSize) ||
+          ((event.metaKey || event.ctrlKey) && (event.key === 'Backspace' || event.key === 'Delete'))
+        ) {
+          event.preventDefault()
+          return true
+        }
+      }
+      return false
+    },
+    []
+  )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -392,6 +455,33 @@ export default function ArticleMarkdownEditor({
     () => createCoverPlaceholderNode(metadataControlsRef),
     []
   )
+  const metadataProtectionExtension = useMemo(
+    () =>
+      Extension.create({
+        name: 'metadataProtection',
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              filterTransaction(tr, state) {
+                if (allowMetadataRemovalRef.current) return true
+                if (!tr.docChanged) return true
+
+                const prevTitle = findMetadataNodeByRole(state.doc, 'title')
+                const prevSummary = findMetadataNodeByRole(state.doc, 'summary')
+                const nextTitle = findMetadataNodeByRole(tr.doc, 'title')
+                const nextSummary = findMetadataNodeByRole(tr.doc, 'summary')
+
+                // Reject removal or type/role changes.
+                if (prevTitle && (!nextTitle || prevTitle.node.type.name !== nextTitle.node.type.name)) return false
+                if (prevSummary && (!nextSummary || prevSummary.node.type.name !== nextSummary.node.type.name)) return false
+                return true
+              }
+            })
+          ]
+        }
+      }),
+    [allowMetadataRemovalRef]
+  )
 
   const notifyMetadataChange = useCallback(
     (doc: any, reason?: string) => {
@@ -460,7 +550,7 @@ export default function ArticleMarkdownEditor({
       const baseDoc = {
         type: 'doc',
         content: [
-          ...getTemplateContent(metadataId, initialMetadata).content,
+          ...getTemplateContent(metadataId, initialMetadata, !initialMetadata.coverDismissed).content,
           ...(Array.isArray(bodyDocJson?.content) ? stripMetadataFromDocJSON(bodyDocJson).content : [])
         ]
       }
@@ -480,25 +570,27 @@ export default function ArticleMarkdownEditor({
     }
   }, [initialMetadata, notifyMetadataChange, recomputeMetadataUi, debugLog])
 
-  const refreshTemplate = useCallback(() => {
+  useEffect(() => {
     const currentEditor = editorRef.current
     if (!currentEditor) return
+    if (templateResetKey === undefined) return
+    if (lastResetKeyRef.current === templateResetKey) return
+    if (templateResetKey === 0 && lastResetKeyRef.current === undefined) {
+      lastResetKeyRef.current = templateResetKey
+      return
+    }
+    lastResetKeyRef.current = templateResetKey
     const metadataId = generateMetadataId()
-    try {
-      const docJson = currentEditor.getJSON()
-      const body = stripMetadataFromDocJSON(docJson)
-      const bodyContent = Array.isArray(body?.content) ? body.content : []
-      const isSingleEmptyParagraph =
-        bodyContent.length === 1 && isEmptyParagraphNode(bodyContent[0])
-      const nextDoc = {
-        type: 'doc',
-        content: [...getTemplateContent(metadataId).content, ...(isSingleEmptyParagraph ? [] : bodyContent)]
-      }
+    withMetadataRemovalAllowed(() => {
+      templateInsertedRef.current = false
+      metadataDismissedRef.current = false
+      hydratedFromInitialJsonRef.current = false
       currentEditor
         .chain()
-        .focus()
-        .setContent(nextDoc)
+        .clearContent()
+        .insertContent(getTemplateContent(metadataId))
         .command(({ tr, dispatch }) => {
+          // Place the caret in the body paragraph after the metadata block.
           const end = tr.doc.content.size
           try {
             const Selection = (currentEditor.state.selection as any).constructor
@@ -512,14 +604,95 @@ export default function ArticleMarkdownEditor({
         })
         .run()
       templateInsertedRef.current = true
-      metadataDismissedRef.current = false
-      recomputeMetadataUi(currentEditor.state, 'template-refresh')
-      notifyMetadataChange(currentEditor.state.doc, 'template-refresh')
-      debugLog('template:refresh', { metadataId })
+      const nextMarkdown = getMarkdown(currentEditor as any)
+      lastMarkdown.current = nextMarkdown
+      if (nextMarkdown !== value) {
+        onChange(nextMarkdown)
+      }
+    })
+    recomputeMetadataUi(currentEditor.state, 'template-reset')
+    notifyMetadataChange(currentEditor.state.doc, 'template-reset')
+    debugLog('template:reset', { templateResetKey })
+  }, [
+    templateResetKey,
+    notifyMetadataChange,
+    recomputeMetadataUi,
+    debugLog,
+    withMetadataRemovalAllowed,
+    onChange,
+    value,
+    getMarkdown
+  ])
+
+  const restoreCoverPlaceholder = useCallback(() => {
+    const currentEditor = editorRef.current
+    if (!currentEditor) return
+    const coverNode = findMetadataNodeByRole(currentEditor.state.doc, 'cover')
+    if (coverNode) {
+      debugLog('template:cover-restore-skip', { reason: 'cover-exists' })
+      return
+    }
+    const metadataRange = getMetadataRange(currentEditor.state.doc)
+    const metadataId = metadataRange?.metadataId || generateMetadataId()
+    const summaryNode = findMetadataNodeByRole(currentEditor.state.doc, 'summary')
+    const titleNode = findMetadataNodeByRole(currentEditor.state.doc, 'title')
+    const insertAt = summaryNode?.to ?? titleNode?.to ?? 0
+    try {
+      currentEditor
+        .chain()
+        .focus()
+        .command(({ tr, dispatch }) => {
+          const schema = currentEditor.state.schema
+          const node = schema.nodeFromJSON({
+            type: 'coverPlaceholder',
+            attrs: {
+              src: null,
+              isTemplate: true,
+              metadata: true,
+              metadataId,
+              metadataRole: 'cover'
+            }
+          })
+          tr.insert(insertAt, node)
+          if (dispatch) dispatch(tr)
+          return true
+        })
+        .run()
+      notifyMetadataChange(currentEditor.state.doc, 'cover-restore')
+      recomputeMetadataUi(currentEditor.state, 'cover-restore')
+      debugLog('template:cover-restore', { metadataId })
     } catch (e) {
-      debugLog('template:refresh-error', { message: (e as Error)?.message })
+      debugLog('template:cover-restore-error', { message: (e as Error)?.message })
     }
   }, [notifyMetadataChange, recomputeMetadataUi, debugLog])
+
+  const handleClear = useCallback(() => {
+    const currentEditor = editorRef.current
+    if (!currentEditor) return
+    debugLog('toolbar:clear')
+    withMetadataRemovalAllowed(() => {
+      currentEditor.commands.clearContent()
+      lastMarkdown.current = ''
+      hydratedFromInitialJsonRef.current = false
+      templateInsertedRef.current = false
+      metadataDismissedRef.current = false
+    })
+    onChange('')
+    onBodyChange?.('')
+    onJsonChange?.(null)
+    recomputeMetadataUi(currentEditor.state, 'toolbar-clear')
+    notifyMetadataChange(currentEditor.state.doc, 'toolbar-clear')
+    onClearEditor?.()
+  }, [
+    onBodyChange,
+    onChange,
+    onClearEditor,
+    onJsonChange,
+    notifyMetadataChange,
+    recomputeMetadataUi,
+    withMetadataRemovalAllowed,
+    debugLog
+  ])
 
   const simulateArticleEvent = useCallback(async () => {
     const dismissed = metadataSnapshot?.dismissed
@@ -564,6 +737,7 @@ export default function ArticleMarkdownEditor({
       }),
       metadataHeadingExtension,
       metadataBlockquoteExtension,
+      metadataProtectionExtension,
       Underline.extend({
         addStorage() {
           return {
@@ -667,6 +841,9 @@ export default function ArticleMarkdownEditor({
         return true
       },
       handleKeyDown: (view, event) => {
+        if (guardMetadataDeletion(view, event as KeyboardEvent)) {
+          return true
+        }
         const isList =
           editor?.isActive('bulletList') ||
           editor?.isActive('orderedList') ||
@@ -750,40 +927,9 @@ export default function ArticleMarkdownEditor({
 
   const removeMetadataGroup = useCallback(
     (metadataId?: string | null) => {
-      if (!editor) return
-      const range = getMetadataRange(editor.state.doc, metadataId)
-      if (!range) return
-      lastMetadataActionRef.current = 'group-handler'
-      metadataDismissedRef.current = true
-      templateInsertedRef.current = false
-      const beforeSize = editor.state.doc.content.size
-      debugLog('metadata:group-remove', {
-        metadataId: metadataId ?? null,
-        range,
-        docSizeBefore: beforeSize,
-        dismissedRef: metadataDismissedRef.current,
-        templateInsertedRef: templateInsertedRef.current,
-        lastAction: lastMetadataActionRef.current
-      })
-      editor
-        .chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.deleteRange(range.from, range.to)
-          return true
-        })
-        .run()
-      const afterSize = editor.state.doc.content.size
-      notifyMetadataChange(editor.state.doc, 'group-remove')
-      debugLog('metadata:group-remove:done', {
-        metadataId: metadataId ?? null,
-        docSizeAfter: afterSize,
-        dismissedRef: metadataDismissedRef.current,
-        templateInsertedRef: templateInsertedRef.current
-      })
-      recomputeMetadataUi(editor.state, 'group-remove')
+      debugLog('metadata:group-remove-blocked', { metadataId: metadataId ?? null })
     },
-    [editor, notifyMetadataChange, recomputeMetadataUi, debugLog]
+    [debugLog]
   )
 
   useEffect(() => {
@@ -819,7 +965,19 @@ export default function ArticleMarkdownEditor({
       })
       const run = () => {
         if (!editor) return
-        editor.commands.setContent(content)
+        const cleaned = sanitizeContent(content)
+        try {
+          editor.commands.setContent(cleaned ?? '')
+        } catch (e) {
+          debugLog('content:set-error', { reason, message: (e as Error)?.message })
+          const metadataId = generateMetadataId()
+          editor
+            .chain()
+            .clearContent()
+            .insertContent(getTemplateContent(metadataId))
+            .run()
+          templateInsertedRef.current = true
+        }
         recomputeMetadataUi(editor.state, `after-apply:${reason}`)
         notifyMetadataChange(editor.state.doc, `after-apply:${reason}`)
       }
@@ -1276,12 +1434,20 @@ export default function ArticleMarkdownEditor({
       <ToolbarGroup>
         <ToolbarButton
           icon={LayoutTemplate}
-          label="Insert template"
+          label="Add cover"
           onClick={() => {
-            debugLog('toolbar:template')
-            refreshTemplate()
+            debugLog('toolbar:add-cover')
+            restoreCoverPlaceholder()
           }}
           isFirst
+          disabled={Boolean(findMetadataNodeByRole(editor.state.doc, 'cover'))}
+          withText={!isTouchSmallScreen}
+          shouldIgnoreTap={() => skipToolbarTapRef.current}
+        />
+        <ToolbarButton
+          icon={Trash2}
+          label="Clear"
+          onClick={handleClear}
           isLast
           withText={!isTouchSmallScreen}
           shouldIgnoreTap={() => skipToolbarTapRef.current}
@@ -1866,6 +2032,9 @@ function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<Meta
     addOptions() {
       return {
         ...this.parent?.(),
+        selectable: false,
+        isolating: true,
+        defining: true,
         levels: [1, 2, 3, 4] as Level[]
       }
     },
@@ -1900,6 +2069,14 @@ function createMetadataBlockquoteExtension(
   controlsRef: React.MutableRefObject<MetadataControls>
 ) {
   return Blockquote.extend({
+    addOptions() {
+      return {
+        ...this.parent?.(),
+        selectable: false,
+        isolating: true,
+        defining: true
+      }
+    },
     addAttributes() {
       return {
         ...(this.parent?.() ?? {}),
@@ -2098,7 +2275,41 @@ function convertStandaloneUrls(editor: any, debugLog?: (msg: string, data?: unkn
   }
 }
 
-function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapshot>) {
+function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapshot>, includeCover = true) {
+  const titleContent =
+    values?.title && values.title.length
+      ? [
+          {
+            type: 'text',
+            text: values.title
+          }
+        ]
+      : []
+
+  const summaryContent =
+    values?.summary && values.summary.length
+      ? [
+          {
+            type: 'text',
+            text: values.summary
+          }
+        ]
+      : []
+
+  const coverNode = includeCover
+    ? [
+        {
+          type: 'coverPlaceholder',
+          attrs: {
+            src: values?.image ?? null,
+            isTemplate: true,
+            metadata: true,
+            metadataId,
+            metadataRole: 'cover'
+          }
+        }
+      ]
+    : []
   return {
     type: 'doc',
     content: [
@@ -2111,12 +2322,7 @@ function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapsho
           metadataRole: 'title',
           isPlaceholder: !values?.title
         },
-        content: [
-          {
-            type: 'text',
-            text: values?.title || METADATA_TITLE_PLACEHOLDER
-          }
-        ]
+        content: titleContent
       },
       {
         type: 'blockquote',
@@ -2129,25 +2335,11 @@ function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapsho
         content: [
           {
             type: 'paragraph',
-            content: [
-              {
-                type: 'text',
-                text: values?.summary || METADATA_SUMMARY_PLACEHOLDER
-              }
-            ]
+            content: summaryContent
           }
         ]
       },
-      {
-        type: 'coverPlaceholder',
-        attrs: {
-          src: values?.image ?? null,
-          isTemplate: true,
-          metadata: true,
-          metadataId,
-          metadataRole: 'cover'
-        }
-      },
+      ...coverNode,
       {
         type: 'paragraph',
         attrs: { metadata: false },
@@ -2230,6 +2422,21 @@ function getMetadataRange(doc: any, metadataId?: string | null) {
   return { from: min, to: max, metadataId: resolvedId }
 }
 
+function findMetadataNodeByRole(
+  doc: any,
+  role: MetadataRole
+): { from: number; to: number; node: any } | null {
+  let found: { from: number; to: number; node: any } | null = null
+  doc?.descendants?.((node: any, pos: number) => {
+    if (node?.attrs?.metadata && ((node?.attrs?.metadataRole as MetadataRole) || inferMetadataRole(node)) === role) {
+      found = { from: pos, to: pos + node.nodeSize, node }
+      return false
+    }
+    return
+  })
+  return found
+}
+
 function isSelectionInsideMetadata(doc: any, selection: any, metadataId?: string | null) {
   const range = getMetadataRange(doc, metadataId)
   if (!range || !selection) return false
@@ -2246,9 +2453,11 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
     metadataId: null,
     hasMetadataBlock: false,
     dismissed,
-    isTemplatePristine: false
+    isTemplatePristine: false,
+    coverDismissed: false
   }
   let nonMetadataContent = false
+  let coverFound = false
   doc?.descendants?.((node: any) => {
     const isMetadata = Boolean(node?.attrs?.metadata)
     if (isMetadata) {
@@ -2258,14 +2467,12 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
         (node?.attrs?.metadataRole as MetadataRole | undefined) || inferMetadataRole(node)
       if (role === 'title') {
         const text = (node.textContent || '').trim()
-        const isPlaceholder = text === METADATA_TITLE_PLACEHOLDER
-        if (text && !isPlaceholder) {
+        if (text) {
           snapshot.title = text
         }
       } else if (role === 'summary') {
         const text = (node.textContent || '').trim()
-        const isPlaceholder = text === METADATA_SUMMARY_PLACEHOLDER
-        if (text && !isPlaceholder) {
+        if (text) {
           snapshot.summary = text
         }
       } else if (role === 'cover') {
@@ -2273,6 +2480,7 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
         if (src) {
           snapshot.image = src
         }
+        coverFound = true
       }
       return false
     }
@@ -2286,12 +2494,16 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
   if (snapshot.hasMetadataBlock) {
     snapshot.dismissed = false
   }
+  if (snapshot.hasMetadataBlock) {
+    snapshot.coverDismissed = !coverFound
+  }
   snapshot.isTemplatePristine =
     snapshot.hasMetadataBlock &&
     !snapshot.title &&
     !snapshot.summary &&
     !snapshot.image &&
-    !nonMetadataContent
+    !nonMetadataContent &&
+    !snapshot.coverDismissed
   return snapshot
 }
 
@@ -2394,13 +2606,25 @@ function inferMetadataRole(node: any): MetadataRole | undefined {
   return undefined
 }
 
-function isEmptyParagraphNode(node: any) {
-  if (!node || node.type !== 'paragraph') return false
-  if (!node.content || node.content.length === 0) return true
-  if (node.content.length === 1 && node.content[0].type === 'text') {
-    return !(node.content[0].text || '').trim()
+function sanitizeContent(content: any): any {
+  if (!content || typeof content !== 'object') return content
+  const clone = JSON.parse(JSON.stringify(content))
+  const cleanNode = (node: any): any => {
+    if (!node || typeof node !== 'object') return null
+    if (node.type === 'text') {
+      if (!node.text || !String(node.text).length) return null
+      return node
+    }
+    if (Array.isArray(node.content)) {
+      const cleanedChildren = node.content
+        .map((child: any) => cleanNode(child))
+        .filter(Boolean)
+      return { ...node, content: cleanedChildren }
+    }
+    return node
   }
-  return false
+  const cleaned = cleanNode(clone)
+  return cleaned ?? content
 }
 
 function isYoutubeUrl(url: string) {
@@ -2673,31 +2897,17 @@ function useMetadataRerender(editor: any) {
 }
 
 function MetadataHeadingView(props: any) {
-  const { node, getPos, editor, deleteNode, updateAttributes, controlsRef } = props
+  const { node, editor, updateAttributes } = props
   useMetadataRerender(editor)
-  const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
   const metadataId = node?.attrs?.metadataId
-  const isMetadata = Boolean(node?.attrs?.metadata)
   const isPlaceholder = node?.attrs?.isPlaceholder
-  const showGroupDelete = mode === 'group'
-  const showFieldDelete = mode === 'field' && isMetadata
   const text = node?.textContent ?? ''
+  const isEmpty = !(text || '').trim()
   const level = Math.min(6, Math.max(1, Number(node?.attrs?.level) || 1))
   const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements
-
-  const clearPlaceholder = () => {
-    if (!isPlaceholder || typeof getPos !== 'function') return
-    const pos = getPos()
-    editor
-      ?.chain()
-      .focus()
-      .command(({ tr }: { tr: any }) => {
-        tr.insertText('', pos + 1, pos + node.nodeSize - 1)
-        return true
-      })
-      .run()
-    updateAttributes?.({ isPlaceholder: false })
-  }
+  useEffect(() => {
+    updateAttributes?.({ isPlaceholder: isEmpty })
+  }, [isEmpty, updateAttributes])
 
   return (
     <NodeViewWrapper
@@ -2706,53 +2916,20 @@ function MetadataHeadingView(props: any) {
       data-metadata="true"
       data-metadata-role="title"
       data-metadata-id={metadataId ?? undefined}
+      data-placeholder={METADATA_TITLE_PLACEHOLDER}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
     >
-      {showGroupDelete && isMetadata && (
-        <button
-          type="button"
-          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation()
-            controlsRef?.current?.setLastAction?.('group-button')
-            controlsRef?.current?.debugLog?.('metadata:delete-click', {
-              role: 'title',
-              metadataId,
-              mode,
-              action: 'group-button'
-            })
-            controlsRef?.current?.onGroupRemove?.(metadataId)
-          }}
-        >
-          ×
-        </button>
-      )}
-      {showFieldDelete && (
-        <button
-          type="button"
-          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation()
-            controlsRef?.current?.setLastAction?.('field-button')
-            controlsRef?.current?.debugLog?.('metadata:delete-click', {
-              role: 'title',
-              metadataId,
-              mode,
-              action: 'field-button'
-            })
-            deleteNode?.()
-          }}
-        >
-          ×
-        </button>
-      )}
       <HeadingTag
         className={cn(
-          'text-3xl font-bold leading-snug focus:outline-none',
-          isPlaceholder && text === METADATA_TITLE_PLACEHOLDER ? 'text-muted-foreground' : ''
+          'text-3xl font-bold leading-snug focus:outline-none relative',
+          isPlaceholder && isEmpty ? 'text-muted-foreground' : 'text-foreground'
         )}
-        onFocus={clearPlaceholder}
       >
+        {isEmpty && (
+          <span className="pointer-events-none absolute left-0 top-0 text-muted-foreground/70 select-none">
+            {METADATA_TITLE_PLACEHOLDER}
+          </span>
+        )}
         <NodeViewContent />
       </HeadingTag>
     </NodeViewWrapper>
@@ -2760,27 +2937,15 @@ function MetadataHeadingView(props: any) {
 }
 
 function MetadataSummaryView(props: any) {
-  const { node, getPos, editor, deleteNode, updateAttributes, controlsRef } = props
+  const { node, editor, updateAttributes } = props
   useMetadataRerender(editor)
-  const mode = controlsRef?.current?.getMode?.() ?? 'hidden'
   const metadataId = node?.attrs?.metadataId
   const isPlaceholder = node?.attrs?.isPlaceholder
   const text = node?.textContent ?? ''
-  const showFieldDelete = mode === 'field'
-
-  const clearPlaceholder = () => {
-    if (!isPlaceholder || typeof getPos !== 'function') return
-    const pos = getPos()
-    editor
-      ?.chain()
-      .focus()
-      .command(({ tr }: { tr: any }) => {
-        tr.insertText('', pos + 1, pos + node.nodeSize - 1)
-        return true
-      })
-      .run()
-    updateAttributes?.({ isPlaceholder: false })
-  }
+  const isEmpty = !(text || '').trim()
+  useEffect(() => {
+    updateAttributes?.({ isPlaceholder: isEmpty })
+  }, [isEmpty, updateAttributes])
 
   return (
     <NodeViewWrapper
@@ -2789,35 +2954,20 @@ function MetadataSummaryView(props: any) {
       data-metadata="true"
       data-metadata-role="summary"
       data-metadata-id={metadataId ?? undefined}
+      data-placeholder={METADATA_SUMMARY_PLACEHOLDER}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
     >
-      {showFieldDelete && (
-        <button
-          type="button"
-          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation()
-            controlsRef?.current?.setLastAction?.('field-button')
-            controlsRef?.current?.debugLog?.('metadata:delete-click', {
-              role: 'summary',
-              metadataId,
-              action: 'field-button'
-            })
-            deleteNode?.()
-          }}
-        >
-          ×
-        </button>
-      )}
       <blockquote
         className={cn(
-          'border-l-4 border-muted-foreground/50 pl-3 text-muted-foreground',
-          isPlaceholder && text === METADATA_SUMMARY_PLACEHOLDER
-            ? 'text-muted-foreground'
-            : 'text-foreground'
+          'border-l-4 border-muted-foreground/50 pl-3 relative',
+          isPlaceholder && isEmpty ? 'text-muted-foreground' : 'text-foreground'
         )}
-        onFocus={clearPlaceholder}
       >
+        {isEmpty && (
+          <span className="pointer-events-none absolute left-3 top-0 text-muted-foreground/70 select-none">
+            {METADATA_SUMMARY_PLACEHOLDER}
+          </span>
+        )}
         <NodeViewContent />
       </blockquote>
     </NodeViewWrapper>
