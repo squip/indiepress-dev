@@ -92,7 +92,7 @@ const PostTextarea = forwardRef<
       editorProps: {
         attributes: {
           class: cn(
-            'border rounded-lg p-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            'border rounded-lg p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:border-transparent',
             className
           )
         },

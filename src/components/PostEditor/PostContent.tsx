@@ -1,5 +1,6 @@
 import Note from '@/components/Note'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   createCommentDraftEvent,
@@ -23,6 +24,7 @@ import PollEditor from './PollEditor'
 import PostOptions from './PostOptions'
 import PostRelaySelector from './PostRelaySelector'
 import PostTextarea, { TPostTextareaHandle } from './PostTextarea'
+import Preview from './PostTextarea/Preview'
 import Uploader from './Uploader'
 import { isTouchDevice } from '@/lib/utils'
 
@@ -67,6 +69,7 @@ export default function PostContent({
   })
   const [minPow, setMinPow] = useState(0)
   const allowEmoji = useMemo(() => !isTouchDevice(), [])
+  const [view, setView] = useState<'edit' | 'preview'>('edit')
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
     return (
@@ -194,7 +197,14 @@ export default function PostContent({
   }
 
   // The textarea already includes its own Edit/Preview toggle; keep header empty to avoid duplication.
-  const header = null as ReactNode
+  const header = parentEvent ? null : (
+    <Tabs value={view} onValueChange={(v) => setView(v as 'edit' | 'preview')}>
+      <TabsList>
+        <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
+        <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  )
 
   const body = (
     <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
@@ -205,23 +215,36 @@ export default function PostContent({
           </div>
         </div>
       )}
-      <PostTextarea
-        ref={textareaRef}
-        text={text}
-        setText={setText}
-        defaultContent={defaultContent}
-        parentEvent={parentEvent}
-        onSubmit={() => post()}
-        className={isPoll ? 'min-h-20' : 'min-h-52'}
-        onUploadStart={handleUploadStart}
-        onUploadProgress={handleUploadProgress}
-        onUploadEnd={handleUploadEnd}
-      />
-      {isPoll && (
-        <PollEditor
-          pollCreateData={pollCreateData}
-          setPollCreateData={setPollCreateData}
-          setIsPoll={setIsPoll}
+      {view === 'edit' ? (
+        <>
+          <PostTextarea
+            ref={textareaRef}
+            text={text}
+            setText={setText}
+            defaultContent={defaultContent}
+            parentEvent={parentEvent}
+            onSubmit={() => post()}
+            className={isPoll ? 'min-h-20' : 'min-h-52'}
+            onUploadStart={handleUploadStart}
+            onUploadProgress={handleUploadProgress}
+            onUploadEnd={handleUploadEnd}
+            hidePreviewToggle
+          />
+          {isPoll && (
+            <PollEditor
+              pollCreateData={pollCreateData}
+              setPollCreateData={setPollCreateData}
+              setIsPoll={setIsPoll}
+            />
+          )}
+        </>
+      ) : (
+        <Preview
+          content={text}
+          className={cn(
+            'border rounded-lg p-3 min-h-52 bg-background',
+            isPoll ? 'min-h-20' : 'min-h-52'
+          )}
         />
       )}
       {uploadProgresses.length > 0 &&
