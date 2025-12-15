@@ -1005,6 +1005,13 @@ export default function ArticleMarkdownEditor({
     return keyboardOpen
   }, [isTouchSmallScreen, keyboardOpen, hasFocus])
 
+  useEffect(() => {
+    if (!isTouchSmallScreen) return
+    if (hasFocus) {
+      setIsFabOpen(true)
+    }
+  }, [isTouchSmallScreen, hasFocus])
+
   const emojiEnabled = useMemo(
     () => !isTouchInput && !isTouchSmallScreen,
     [isTouchInput, isTouchSmallScreen]
@@ -1368,13 +1375,14 @@ export default function ArticleMarkdownEditor({
         typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed left-0 right-0 z-[80] flex items-center justify-end px-4 pb-2 pointer-events-none"
+            className="fixed z-[80] pointer-events-none"
             style={{
-              bottom: Math.max(12, keyboardOffset + 12),
-              paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+              top: Math.max(10, (typeof window !== 'undefined' ? window.visualViewport?.offsetTop ?? 0 : 0) + 10),
+              right: 14,
+              paddingTop: 'env(safe-area-inset-top, 0px)'
             }}
           >
-            <div className="relative inline-flex items-center gap-2 pointer-events-auto">
+            <div className="relative inline-flex items-center gap-2 pointer-events-auto translate-y-1">
               <div className="relative">
                 <div
                   className={`flex items-center gap-1 overflow-x-auto whitespace-nowrap bg-background border border-border px-2 py-2 rounded-md shadow-lg transition-all duration-200 ease-out origin-bottom-right touch-pan-x ${
@@ -2649,7 +2657,7 @@ function MetadataHeadingView(props: any) {
       {showGroupDelete && isMetadata && (
         <button
           type="button"
-          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
             controlsRef?.current?.setLastAction?.('group-button')
@@ -2668,7 +2676,7 @@ function MetadataHeadingView(props: any) {
       {showFieldDelete && (
         <button
           type="button"
-          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
             controlsRef?.current?.setLastAction?.('field-button')
@@ -2732,7 +2740,7 @@ function MetadataSummaryView(props: any) {
       {showFieldDelete && (
         <button
           type="button"
-          className="absolute -right-2 -top-3 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
+          className="absolute right-1 top-1 z-10 rounded-full bg-background border text-xs px-2 py-1 shadow hover:bg-muted"
           onClick={(e) => {
             e.stopPropagation()
             controlsRef?.current?.setLastAction?.('field-button')
