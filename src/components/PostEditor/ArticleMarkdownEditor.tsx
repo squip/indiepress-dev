@@ -477,7 +477,12 @@ export default function ArticleMarkdownEditor({
 
                 // Reject removal or type/role changes.
                 if (prevTitle && (!nextTitle || prevTitle.node.type.name !== nextTitle.node.type.name)) return false
+                if (nextTitle && nextTitle.node.attrs?.level !== 1) return false
                 if (prevSummary && (!nextSummary || prevSummary.node.type.name !== nextSummary.node.type.name)) return false
+                const summaryChild = nextSummary?.node?.firstChild
+                if (nextSummary && (!summaryChild || summaryChild.type.name !== 'heading' || summaryChild.attrs?.level !== 4)) {
+                  return false
+                }
                 const top0 = tr.doc.childCount > 0 ? tr.doc.child(0) : null
                 const top1 = tr.doc.childCount > 1 ? tr.doc.child(1) : null
                 const top2 = tr.doc.childCount > 2 ? tr.doc.child(2) : null
@@ -2362,7 +2367,10 @@ function getTemplateContent(metadataId: string, values?: Partial<MetadataSnapsho
         },
         content: [
           {
-            type: 'paragraph',
+            type: 'heading',
+            attrs: {
+              level: 4
+            },
             content: summaryContent
           }
         ]
