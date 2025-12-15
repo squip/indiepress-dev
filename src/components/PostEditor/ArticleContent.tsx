@@ -4,7 +4,7 @@ import { createLongFormDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
 import postEditorCache from '@/services/post-editor-cache.service'
 import { Event } from '@nostr/tools/wasm'
-import { useEffect, useMemo, useState, MouseEvent } from 'react'
+import { useEffect, useMemo, useState, MouseEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { LoaderCircle } from 'lucide-react'
@@ -18,13 +18,19 @@ export default function ArticleContent({
   openFrom,
   existingEvent,
   extraTags = [],
-  onPublish
+  onPublish,
+  renderSections
 }: {
   close: () => void
   openFrom?: string[]
   existingEvent?: Event
   extraTags?: string[][]
   onPublish?: (draftEvent: TDraftEvent, options: { isDraft: boolean; relayUrls: string[] }) => Promise<void>
+  renderSections: (sections: {
+    header?: React.ReactNode
+    body: React.ReactNode
+    footer: React.ReactNode
+  }) => React.ReactNode
 }) {
   const { t } = useTranslation()
   const { publish, checkLogin } = useNostr()
@@ -345,122 +351,127 @@ export default function ArticleContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  return (
-    <div className="space-y-3 flex flex-col">
-      <div className="space-y-2 flex-1 min-h-0">
-        {!cacheHydrated ? (
-          <div className="text-sm text-muted-foreground">{t('Loading...')}</div>
-        ) : (
-          <ArticleMarkdownEditor
-            value={content}
-            onChange={setContent}
-            onBodyChange={setBodyContent}
-            initialJson={editorJson}
-            onJsonChange={setEditorJson}
-            onMetadataChange={setMetadataSnapshot}
-            initialMetadata={metadataSnapshot?.dismissed ? undefined : metadataSnapshot ?? undefined}
-            shouldInsertTemplate={shouldInsertTemplate}
-            mentions={mentions}
-            setMentions={setMentions}
-            onUploadStart={handleUploadStart}
-            onUploadEnd={handleUploadEnd}
-            onUploadProgress={handleUploadProgress}
-            onUploadSuccess={({ url }) => {
-              setContent((prev) => `${prev}${prev ? '\n' : ''}${url}`)
-            }}
-            onEmojiSelect={(emoji) => {
-              if (!emoji) return
-              setContent((prev) =>
-                `${prev} ${typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`}`.trim()
-              )
-            }}
-            onSaveDraft={() => publishDraft(true)}
-          />
-        )}
-      </div>
-      <div className="sticky bottom-0 left-0 right-0 bg-background pt-2 space-y-2">
-        {uploadProgresses.length > 0 &&
-          uploadProgresses.map(({ file, progress, cancel }, index) => (
-            <div key={`${file.name}-${index}`} className="mt-2 flex items-end gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs text-muted-foreground mb-1">
-                  {file.name ?? t('Uploading...')}
-                </div>
-                <div className="h-0.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-[width] duration-200 ease-out"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  cancel?.()
-                  handleUploadEnd(file)
-                }}
-                className="text-muted-foreground hover:text-foreground"
-                title={t('Cancel')}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        <PostRelaySelector
-          setIsProtectedEvent={setIsProtectedEvent}
-          setAdditionalRelayUrls={setAdditionalRelayUrls}
-          parentEvent={existingEvent}
-          openFrom={openFrom}
+  const header: ReactNode | undefined = undefined
+
+  const body = (
+    <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
+      {!cacheHydrated ? (
+        <div className="text-sm text-muted-foreground">{t('Loading...')}</div>
+      ) : (
+        <ArticleMarkdownEditor
+          value={content}
+          onChange={setContent}
+          onBodyChange={setBodyContent}
+          initialJson={editorJson}
+          onJsonChange={setEditorJson}
+          onMetadataChange={setMetadataSnapshot}
+          initialMetadata={metadataSnapshot?.dismissed ? undefined : metadataSnapshot ?? undefined}
+          shouldInsertTemplate={shouldInsertTemplate}
+          mentions={mentions}
+          setMentions={setMentions}
+          onUploadStart={handleUploadStart}
+          onUploadEnd={handleUploadEnd}
+          onUploadProgress={handleUploadProgress}
+          onUploadSuccess={({ url }) => {
+            setContent((prev) => `${prev}${prev ? '\n' : ''}${url}`)
+          }}
+          onEmojiSelect={(emoji) => {
+            if (!emoji) return
+            setContent((prev) =>
+              `${prev} ${typeof emoji === 'string' ? emoji : `:${emoji.shortcode}:`}`.trim()
+            )
+          }}
+          onSaveDraft={() => publishDraft(true)}
         />
-        <div className="flex flex-wrap items-center gap-2 justify-end max-sm:hidden">
-          <Button
-            data-post-cancel-button
-            variant="secondary"
-            onClick={(e: MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation()
-              close()
-            }}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            data-post-publish-button
-            disabled={!canPublish || posting}
-            onClick={(e: MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation()
-              publishDraft(false)
-            }}
-          >
-            {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
-            {t('Publish')}
-          </Button>
-        </div>
-        <div className="flex gap-2 items-center justify-around sm:hidden">
-          <Button
-            data-post-cancel-button
-            className="w-full"
-            variant="secondary"
-            onClick={(e: MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation()
-              close()
-            }}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            data-post-publish-button
-            className="w-full"
-            disabled={!canPublish || posting}
-            onClick={(e: MouseEvent<HTMLButtonElement>) => {
-              e.stopPropagation()
-              publishDraft(false)
-            }}
-          >
-            {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
-            {t('Publish')}
-          </Button>
-        </div>
+      )}
+    </div>
+  )
+
+  const footer = (
+    <div className="space-y-2">
+      {uploadProgresses.length > 0 &&
+        uploadProgresses.map(({ file, progress, cancel }, index) => (
+          <div key={`${file.name}-${index}`} className="mt-2 flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs text-muted-foreground mb-1">
+                {file.name ?? t('Uploading...')}
+              </div>
+              <div className="h-0.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-[width] duration-200 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                cancel?.()
+                handleUploadEnd(file)
+              }}
+              className="text-muted-foreground hover:text-foreground"
+              title={t('Cancel')}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      <PostRelaySelector
+        setIsProtectedEvent={setIsProtectedEvent}
+        setAdditionalRelayUrls={setAdditionalRelayUrls}
+        parentEvent={existingEvent}
+        openFrom={openFrom}
+      />
+      <div className="flex flex-wrap items-center gap-2 justify-end max-sm:hidden">
+        <Button
+          data-post-cancel-button
+          variant="secondary"
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation()
+            close()
+          }}
+        >
+          {t('Cancel')}
+        </Button>
+        <Button
+          data-post-publish-button
+          disabled={!canPublish || posting}
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation()
+            publishDraft(false)
+          }}
+        >
+          {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
+          {t('Publish')}
+        </Button>
+      </div>
+      <div className="flex gap-2 items-center justify-around sm:hidden">
+        <Button
+          data-post-cancel-button
+          className="w-full"
+          variant="secondary"
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation()
+            close()
+          }}
+        >
+          {t('Cancel')}
+        </Button>
+        <Button
+          data-post-publish-button
+          className="w-full"
+          disabled={!canPublish || posting}
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation()
+            publishDraft(false)
+          }}
+        >
+          {posting && <LoaderCircle className="animate-spin mr-2 h-4 w-4" />}
+          {t('Publish')}
+        </Button>
       </div>
     </div>
   )
+
+  return renderSections({ header, body, footer })
 }

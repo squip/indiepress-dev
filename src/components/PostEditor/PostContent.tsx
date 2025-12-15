@@ -1,6 +1,6 @@
 import Note from '@/components/Note'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   createCommentDraftEvent,
   createPollDraftEvent,
@@ -14,7 +14,7 @@ import { TPollCreateData } from '@/types'
 import { ImageUp, ListTodo, LoaderCircle, Settings, Smile, X } from 'lucide-react'
 import { Event } from '@nostr/tools/wasm'
 import * as kinds from '@nostr/tools/kinds'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import EmojiPickerDialog from '../EmojiPickerDialog'
@@ -30,12 +30,18 @@ export default function PostContent({
   defaultContent = '',
   parentEvent,
   close,
-  openFrom
+  openFrom,
+  renderSections
 }: {
   defaultContent?: string
   parentEvent?: Event
   close: () => void
   openFrom?: string[]
+  renderSections: (sections: {
+    header: React.ReactNode | null
+    body: React.ReactNode
+    footer: React.ReactNode
+  }) => React.ReactNode
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
@@ -187,14 +193,25 @@ export default function PostContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  return (
-    <div className="space-y-2">
+  const header = parentEvent ? null : (
+    <Tabs defaultValue="edit" className="w-full">
+      <TabsList>
+        <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
+        <TabsTrigger value="preview" disabled>
+          {t('Preview')}
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  )
+
+  const body = (
+    <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
       {parentEvent && (
-        <ScrollArea className="flex max-h-48 flex-col overflow-y-auto rounded-lg border bg-muted/40">
+        <div className="flex max-h-48 flex-col overflow-y-auto rounded-lg border bg-muted/40">
           <div className="p-2 sm:p-3 pointer-events-none">
             <Note size="small" event={parentEvent} hideParentNotePreview />
           </div>
-        </ScrollArea>
+        </div>
       )}
       <PostTextarea
         ref={textareaRef}
@@ -242,6 +259,21 @@ export default function PostContent({
             </button>
           </div>
         ))}
+      <PostOptions
+        posting={posting}
+        show={showMoreOptions}
+        addClientTag={addClientTag}
+        setAddClientTag={setAddClientTag}
+        isNsfw={isNsfw}
+        setIsNsfw={setIsNsfw}
+        minPow={minPow}
+        setMinPow={setMinPow}
+      />
+    </div>
+  )
+
+  const footer = (
+    <div className="space-y-2">
       {!isPoll && (
         <PostRelaySelector
           setIsProtectedEvent={setIsProtectedEvent}
@@ -321,16 +353,6 @@ export default function PostContent({
           </div>
         </div>
       </div>
-      <PostOptions
-        posting={posting}
-        show={showMoreOptions}
-        addClientTag={addClientTag}
-        setAddClientTag={setAddClientTag}
-        isNsfw={isNsfw}
-        setIsNsfw={setIsNsfw}
-        minPow={minPow}
-        setMinPow={setMinPow}
-      />
       <div className="flex gap-2 items-center justify-around sm:hidden">
         <Button
           className="w-full"
@@ -349,4 +371,6 @@ export default function PostContent({
       </div>
     </div>
   )
+
+  return renderSections({ header, body, footer })
 }

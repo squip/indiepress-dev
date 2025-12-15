@@ -1336,8 +1336,8 @@ export default function ArticleMarkdownEditor({
         />
       {!isTouchSmallScreen && (
         <div
-          className="article-toolbar flex flex-wrap items-center gap-2 sticky z-30 bg-background border-b border-border shadow-sm px-1 py-1"
-          style={{ top: 0 }}
+          className="article-toolbar flex flex-wrap items-center gap-2 sticky z-30 bg-background border-b border-border shadow-sm px-2 py-1"
+          style={{ top: 'var(--post-editor-header-height, 0px)' }}
         >
           {toolbarBody}
         </div>

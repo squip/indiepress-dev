@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet'
@@ -17,11 +16,21 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import postEditor from '@/services/post-editor.service'
 import { Event } from '@nostr/tools/wasm'
-import { Dispatch, useEffect, useMemo, useState } from 'react'
+import {
+  CSSProperties,
+  Dispatch,
+  ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import PostContent from './PostContent'
 import ArticleContent from './ArticleContent'
 import Title from './Title'
+import { cn } from '@/lib/utils'
 
 export default function PostEditor({
   defaultContent = '',
@@ -129,36 +138,50 @@ export default function PostEditor({
     }
   }, [isSmallScreen, tab])
 
-  const content = useMemo(() => {
-    if (parentEvent || tab === 'post') {
-      return (
-        <PostContent
-          defaultContent={defaultContent}
-          parentEvent={parentEvent}
-          close={() => setOpen(false)}
-          openFrom={openFrom}
-        />
-      )
-    }
+  const renderTabs = (variant: 'sheet' | 'dialog') => {
+    const TabsWrapper = variant === 'sheet' ? SheetHeader : DialogHeader
+    const TitleWrapper = variant === 'sheet' ? SheetTitle : DialogTitle
     return (
-      <ArticleContent
-        close={() => setOpen(false)}
-        openFrom={openFrom}
-        existingEvent={articleOptions?.existingEvent}
-        extraTags={articleOptions?.extraTags}
-        onPublish={articleOptions?.onPublish}
-      />
+      <TabsWrapper className="space-y-3">
+        {canToggleTabs ? (
+          <Tabs
+            className="w-full"
+            value={tab}
+            onValueChange={(v) => setTab(v as 'post' | 'article')}
+          >
+            <div className="bg-background">
+              <TabsList
+                data-post-editor-tabs
+                className="bg-transparent p-0 h-auto gap-6 justify-start w-full"
+              >
+                <TabsTrigger
+                  value="post"
+                  className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                >
+                  {t('New Post')}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="article"
+                  className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                >
+                  {t('New Article')}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+          </Tabs>
+        ) : (
+          <TitleWrapper className={variant === 'sheet' ? 'text-start' : undefined}>
+            <Title parentEvent={parentEvent} tab={tab} />
+          </TitleWrapper>
+        )}
+        {canToggleTabs && (
+          <TitleWrapper className="sr-only">
+            {tab === 'post' ? t('New Post') : t('New Article')}
+          </TitleWrapper>
+        )}
+      </TabsWrapper>
     )
-  }, [
-    defaultContent,
-    parentEvent,
-    openFrom,
-    setOpen,
-    tab,
-    articleOptions?.existingEvent,
-    articleOptions?.extraTags,
-    articleOptions?.onPublish
-  ])
+  }
 
   if (isSmallScreen) {
     return (
@@ -174,50 +197,48 @@ export default function PostEditor({
             }
           }}
         >
-          <div className="px-4 pt-4 space-y-2">
-            <SheetHeader>
-              {canToggleTabs ? (
-                <Tabs
-                  className="w-full"
-                  value={tab}
-                  onValueChange={(v) => setTab(v as 'post' | 'article')}
-                >
-                  <div className="sticky top-0 z-40 bg-background">
-                    <TabsList
-                      data-post-editor-tabs
-                      className="bg-transparent p-0 h-auto gap-6 justify-start w-full"
-                    >
-                      <TabsTrigger
-                        value="post"
-                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                      >
-                        {t('New Post')}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="article"
-                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                      >
-                        {t('New Article')}
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
-                </Tabs>
-              ) : (
-                <SheetTitle className="text-start">
-                  <Title parentEvent={parentEvent} tab={tab} />
-                </SheetTitle>
+          {parentEvent || tab === 'post' ? (
+            <PostContent
+              defaultContent={defaultContent}
+              parentEvent={parentEvent}
+              close={() => setOpen(false)}
+              openFrom={openFrom}
+              renderSections={({ header, body, footer }) => (
+                <PostEditorFrame
+                  maxHeightClass="max-h-[calc(100vh-140px)]"
+                  header={
+                    <>
+                      {renderTabs('sheet')}
+                      {header ? <div>{header}</div> : null}
+                    </>
+                  }
+                  body={body}
+                footer={footer}
+              />
+            )}
+          />
+          ) : (
+            <ArticleContent
+              close={() => setOpen(false)}
+              openFrom={openFrom}
+              existingEvent={articleOptions?.existingEvent}
+              extraTags={articleOptions?.extraTags}
+              onPublish={articleOptions?.onPublish}
+              renderSections={({ header, body, footer }) => (
+                <PostEditorFrame
+                  maxHeightClass="max-h-[calc(100vh-140px)]"
+                  header={
+                    <>
+                      {renderTabs('sheet')}
+                      {header ? <div>{header}</div> : null}
+                    </>
+                  }
+                  body={body}
+                  footer={footer}
+                />
               )}
-              {canToggleTabs && (
-                <SheetTitle className="sr-only">
-                  {tab === 'post' ? t('New Post') : t('New Article')}
-                </SheetTitle>
-              )}
-              <SheetDescription className="hidden" />
-            </SheetHeader>
-          </div>
-          <ScrollArea className="px-4 max-h-[calc(100vh-140px)]" allowStickyChildren data-post-editor-scroll>
-            <div className="space-y-4 px-2 pt-9 pb-36">{content}</div>
-          </ScrollArea>
+            />
+          )}
         </SheetContent>
       </Sheet>
     )
@@ -235,48 +256,103 @@ export default function PostEditor({
           }
         }}
       >
-        <div className="px-4 pt-4">
-          <DialogHeader>
-            {canToggleTabs ? (
-              <DialogTitle className="w-full">
-                <div className="sticky top-0 z-40 bg-background">
-                  <Tabs
-                    className="w-full"
-                    value={tab}
-                    onValueChange={(v) => setTab(v as 'post' | 'article')}
-                  >
-                    <TabsList
-                      data-post-editor-tabs
-                      className="bg-transparent p-0 h-auto gap-6 justify-start w-full"
-                    >
-                      <TabsTrigger
-                        value="post"
-                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                      >
-                        {t('New Post')}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="article"
-                        className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                      >
-                        {t('New Article')}
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-              </DialogTitle>
-            ) : (
-              <DialogTitle>
-                <Title parentEvent={parentEvent} tab={tab} />
-              </DialogTitle>
+        {parentEvent || tab === 'post' ? (
+          <PostContent
+            defaultContent={defaultContent}
+            parentEvent={parentEvent}
+            close={() => setOpen(false)}
+            openFrom={openFrom}
+            renderSections={({ header, body, footer }) => (
+              <PostEditorFrame
+                maxHeightClass="max-h-[calc(100vh-160px)]"
+                header={
+                  <>
+                    {renderTabs('dialog')}
+                    {header ? <div>{header}</div> : null}
+                  </>
+                }
+                body={body}
+                footer={footer}
+              />
             )}
-            <DialogDescription className="hidden" />
-          </DialogHeader>
-        </div>
-        <ScrollArea className="px-4 max-h-[calc(100vh-160px)]" allowStickyChildren data-post-editor-scroll>
-          <div className="space-y-4 px-2 py-4 pt-9 pb-36">{content}</div>
-        </ScrollArea>
+          />
+        ) : (
+          <ArticleContent
+            close={() => setOpen(false)}
+            openFrom={openFrom}
+            existingEvent={articleOptions?.existingEvent}
+            extraTags={articleOptions?.extraTags}
+            onPublish={articleOptions?.onPublish}
+            renderSections={({ header, body, footer }) => (
+              <PostEditorFrame
+                maxHeightClass="max-h-[calc(100vh-160px)]"
+                header={
+                  <>
+                    {renderTabs('dialog')}
+                    {header ? <div>{header}</div> : null}
+                  </>
+                }
+                body={body}
+                footer={footer}
+              />
+            )}
+          />
+        )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function PostEditorFrame({
+  header,
+  body,
+  footer,
+  maxHeightClass,
+  className
+}: {
+  header: ReactNode
+  body: ReactNode
+  footer?: ReactNode
+  maxHeightClass: string
+  className?: string
+}) {
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const [headerHeight, setHeaderHeight] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = headerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const update = () => setHeaderHeight(el.getBoundingClientRect().height || 0)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const style = useMemo(
+    () =>
+      ({
+        '--post-editor-header-height': `${headerHeight}px`
+      }) as CSSProperties,
+    [headerHeight]
+  )
+
+  return (
+    <div
+      className={cn('flex h-full w-full flex-col', maxHeightClass, className)}
+      style={style}
+    >
+      <div ref={headerRef} className="px-4 pt-4 pb-2 space-y-3 min-h-[64px]">
+        {header}
+      </div>
+      <ScrollArea
+        className="flex-1 min-h-0 px-4"
+        allowStickyChildren
+        data-post-editor-scroll
+      >
+        <div className="space-y-3 px-2 py-3">{body}</div>
+      </ScrollArea>
+      {footer ? <div className="px-4 py-3">{footer}</div> : null}
+    </div>
   )
 }
