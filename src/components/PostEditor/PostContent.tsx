@@ -193,16 +193,8 @@ export default function PostContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  const header = parentEvent ? null : (
-    <Tabs defaultValue="edit" className="w-full">
-      <TabsList>
-        <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
-        <TabsTrigger value="preview" disabled>
-          {t('Preview')}
-        </TabsTrigger>
-      </TabsList>
-    </Tabs>
-  )
+  // The textarea already includes its own Edit/Preview toggle; keep header empty to avoid duplication.
+  const header = null as ReactNode
 
   const body = (
     <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">

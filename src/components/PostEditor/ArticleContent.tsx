@@ -351,7 +351,7 @@ export default function ArticleContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  const header: ReactNode | undefined = undefined
+  let externalToolbar: ReactNode | null = null
 
   const body = (
     <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
@@ -382,6 +382,10 @@ export default function ArticleContent({
             )
           }}
           onSaveDraft={() => publishDraft(true)}
+          renderToolbar={(toolbar) => {
+            externalToolbar = toolbar
+            return null
+          }}
         />
       )}
     </div>
@@ -473,5 +477,5 @@ export default function ArticleContent({
     </div>
   )
 
-  return renderSections({ header, body, footer })
+  return renderSections({ header: externalToolbar ?? undefined, body, footer })
 }

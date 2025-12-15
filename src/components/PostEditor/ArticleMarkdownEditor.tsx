@@ -100,6 +100,7 @@ type ArticleMarkdownEditorProps = {
   onUploadSuccess?: ({ url, tags }: { url: string; tags: string[][] }) => void
   onSaveDraft?: () => void
   shouldInsertTemplate?: boolean
+  renderToolbar?: (toolbar: React.ReactNode) => React.ReactNode
 }
 
 type MetadataControlsMode = 'hidden' | 'group' | 'field'
@@ -141,7 +142,8 @@ export default function ArticleMarkdownEditor({
   onUploadProgress,
   onUploadSuccess,
   onSaveDraft,
-  shouldInsertTemplate
+  shouldInsertTemplate,
+  renderToolbar
 }: ArticleMarkdownEditorProps) {
   const lastMarkdown = useRef(value)
   const initialJsonRef = useRef<any>(initialJson)
@@ -1291,6 +1293,20 @@ export default function ArticleMarkdownEditor({
     </>
   )
 
+  const toolbarElement = (
+    <div
+      className="article-toolbar flex flex-wrap items-center gap-2 bg-background border-b border-border shadow-sm px-2 py-1"
+      style={{ top: 'var(--post-editor-header-height, 0px)' }}
+    >
+      {toolbarBody}
+    </div>
+  )
+
+  const toolbarRendered =
+    !isTouchSmallScreen && renderToolbar
+      ? renderToolbar(toolbarElement)
+      : null
+
   return (
     <div className="article-editor space-y-2">
       <LinkDialog
@@ -1334,7 +1350,7 @@ export default function ArticleMarkdownEditor({
           linkSelectionRef.current = null
           }}
         />
-      {!isTouchSmallScreen && (
+      {!isTouchSmallScreen && !renderToolbar && (
         <div
           className="article-toolbar flex flex-wrap items-center gap-2 sticky z-30 bg-background border-b border-border shadow-sm px-2 py-1"
           style={{ top: 'var(--post-editor-header-height, 0px)' }}
@@ -1342,6 +1358,7 @@ export default function ArticleMarkdownEditor({
           {toolbarBody}
         </div>
       )}
+      {toolbarRendered}
       {floatingToolbarVisible &&
         typeof document !== 'undefined' &&
         createPortal(
