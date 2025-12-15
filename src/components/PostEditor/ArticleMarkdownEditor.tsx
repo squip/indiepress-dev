@@ -799,9 +799,16 @@ export default function ArticleMarkdownEditor({
         }
       }),
       Placeholder.configure({
-        placeholder: 'Start writing your article...',
-        includeChildren: true,
-        showOnlyCurrent: false
+        placeholder: ({ node, pos, editor }) => {
+          const isParagraph = node.type.name === 'paragraph'
+          if (!isParagraph) return ''
+          const isMetadata = node.attrs?.metadata
+          if (isMetadata) return ''
+          if (isInsideMetadata(editor.state.doc, pos)) return ''
+          return 'Start writing your article...'
+        },
+        includeChildren: false,
+        showOnlyCurrent: true
       }),
       Markdown.configure({
         html: false,
@@ -2443,6 +2450,12 @@ function isSelectionInsideMetadata(doc: any, selection: any, metadataId?: string
   const from = (selection?.from as number) ?? 0
   const to = (selection?.to as number) ?? from
   return from >= range.from && to <= range.to
+}
+
+function isInsideMetadata(doc: any, pos: number) {
+  const range = getMetadataRange(doc)
+  if (!range) return false
+  return pos >= range.from && pos <= range.to
 }
 
 function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
