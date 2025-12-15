@@ -478,6 +478,19 @@ export default function ArticleMarkdownEditor({
                 // Reject removal or type/role changes.
                 if (prevTitle && (!nextTitle || prevTitle.node.type.name !== nextTitle.node.type.name)) return false
                 if (prevSummary && (!nextSummary || prevSummary.node.type.name !== nextSummary.node.type.name)) return false
+                const top0 = tr.doc.childCount > 0 ? tr.doc.child(0) : null
+                const top1 = tr.doc.childCount > 1 ? tr.doc.child(1) : null
+                const top2 = tr.doc.childCount > 2 ? tr.doc.child(2) : null
+                if (top0 && !(top0.attrs?.metadata && top0.attrs?.metadataRole === 'title')) return false
+                if (top1 && !(top1.attrs?.metadata && top1.attrs?.metadataRole === 'summary')) return false
+                if (
+                  top2 &&
+                  !(
+                    top2.attrs?.metadata &&
+                    top2.attrs?.metadataRole === 'cover'
+                  )
+                )
+                  return false
                 return true
               }
             })
@@ -2062,16 +2075,13 @@ function createMetadataHeadingExtension(controlsRef: React.MutableRefObject<Meta
       const renderer = ReactNodeViewRenderer((props) => (
         <MetadataHeadingView {...props} controlsRef={controlsRef} />
       ))
-      const parent = this.parent?.()
-      return (props) => {
+      const parentRenderer = this.parent?.()
+      return ((props: any) => {
         if (props.node?.attrs?.metadata) {
           return renderer(props)
         }
-        if (parent) {
-          return parent(props)
-        }
-        return renderer(props)
-      }
+        return parentRenderer ? parentRenderer(props) : null
+      }) as any
     }
   })
 }
@@ -2098,9 +2108,16 @@ function createMetadataBlockquoteExtension(
       }
     },
     addNodeView() {
-      return ReactNodeViewRenderer((props) => (
+      const renderer = ReactNodeViewRenderer((props) => (
         <MetadataSummaryView {...props} controlsRef={controlsRef} />
       ))
+      const parentRenderer = this.parent?.()
+      return ((props: any) => {
+        if (props.node?.attrs?.metadata) {
+          return renderer(props)
+        }
+        return parentRenderer ? parentRenderer(props) : null
+      }) as any
     }
   })
 }
@@ -2439,7 +2456,7 @@ function findMetadataNodeByRole(
 ): { from: number; to: number; node: any } | null {
   let found: { from: number; to: number; node: any } | null = null
   doc?.descendants?.((node: any, pos: number) => {
-    if (node?.attrs?.metadata && ((node?.attrs?.metadataRole as MetadataRole) || inferMetadataRole(node)) === role) {
+    if (node?.attrs?.metadata && (node?.attrs?.metadataRole as MetadataRole | undefined) === role) {
       found = { from: pos, to: pos + node.nodeSize, node }
       return false
     }
@@ -2462,6 +2479,16 @@ function isInsideMetadata(doc: any, pos: number) {
   return pos >= range.from && pos <= range.to
 }
 
+function getTopLevelIndex(doc: any, pos: number): number | null {
+  try {
+    const resolved = doc.resolve?.(pos)
+    if (!resolved) return null
+    return resolved.path?.[1] ?? null
+  } catch (_e) {
+    return null
+  }
+}
+
 function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
   const snapshot: MetadataSnapshot = {
     title: undefined,
@@ -2480,8 +2507,7 @@ function extractMetadataFromDoc(doc: any, dismissed = false): MetadataSnapshot {
     if (isMetadata) {
       snapshot.hasMetadataBlock = true
       snapshot.metadataId = snapshot.metadataId ?? node?.attrs?.metadataId ?? null
-      const role =
-        (node?.attrs?.metadataRole as MetadataRole | undefined) || inferMetadataRole(node)
+      const role = node?.attrs?.metadataRole as MetadataRole | undefined
       if (role === 'title') {
         const text = (node.textContent || '').trim()
         if (text) {
@@ -2613,14 +2639,6 @@ function getBodyMarkdown(editor: any) {
   } catch (_e) {
     return storage?.getMarkdown?.() ?? editor?.getText?.() ?? ''
   }
-}
-
-function inferMetadataRole(node: any): MetadataRole | undefined {
-  if (!node) return undefined
-  if (node.type?.name === 'coverPlaceholder') return 'cover'
-  if (node.type?.name === 'heading' && node.attrs?.level === 1) return 'title'
-  if (node.type?.name === 'blockquote') return 'summary'
-  return undefined
 }
 
 function sanitizeContent(content: any): any {
@@ -2914,7 +2932,7 @@ function useMetadataRerender(editor: any) {
 }
 
 function MetadataHeadingView(props: any) {
-  const { node, editor, updateAttributes } = props
+  const { node, editor, updateAttributes, getPos } = props
   useMetadataRerender(editor)
   const metadataId = node?.attrs?.metadataId
   const isPlaceholder = node?.attrs?.isPlaceholder
@@ -2922,9 +2940,18 @@ function MetadataHeadingView(props: any) {
   const isEmpty = !(text || '').trim()
   const level = Math.min(6, Math.max(1, Number(node?.attrs?.level) || 1))
   const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements
+  const topLevelIndex = useMemo(() => {
+    if (typeof getPos !== 'function') return null
+    try {
+      return getTopLevelIndex(editor?.state?.doc, getPos())
+    } catch {
+      return null
+    }
+  }, [editor?.state?.doc, getPos])
   useEffect(() => {
     updateAttributes?.({ isPlaceholder: isEmpty })
   }, [isEmpty, updateAttributes])
+  const allowPlaceholder = node?.attrs?.metadata && topLevelIndex === 0
 
   return (
     <NodeViewWrapper
@@ -2942,7 +2969,7 @@ function MetadataHeadingView(props: any) {
           isPlaceholder && isEmpty ? 'text-muted-foreground' : 'text-foreground'
         )}
       >
-        {isEmpty && (
+        {isEmpty && allowPlaceholder && (
           <span className="pointer-events-none absolute left-0 top-0 text-muted-foreground/70 select-none">
             {METADATA_TITLE_PLACEHOLDER}
           </span>
@@ -2954,15 +2981,24 @@ function MetadataHeadingView(props: any) {
 }
 
 function MetadataSummaryView(props: any) {
-  const { node, editor, updateAttributes } = props
+  const { node, editor, updateAttributes, getPos } = props
   useMetadataRerender(editor)
   const metadataId = node?.attrs?.metadataId
   const isPlaceholder = node?.attrs?.isPlaceholder
   const text = node?.textContent ?? ''
   const isEmpty = !(text || '').trim()
+  const topLevelIndex = useMemo(() => {
+    if (typeof getPos !== 'function') return null
+    try {
+      return getTopLevelIndex(editor?.state?.doc, getPos())
+    } catch {
+      return null
+    }
+  }, [editor?.state?.doc, getPos])
   useEffect(() => {
     updateAttributes?.({ isPlaceholder: isEmpty })
   }, [isEmpty, updateAttributes])
+  const allowPlaceholder = node?.attrs?.metadata && topLevelIndex === 1
 
   return (
     <NodeViewWrapper
@@ -2980,7 +3016,7 @@ function MetadataSummaryView(props: any) {
           isPlaceholder && isEmpty ? 'text-muted-foreground' : 'text-foreground'
         )}
       >
-        {isEmpty && (
+        {isEmpty && allowPlaceholder && (
           <span className="pointer-events-none absolute left-3 top-0 text-muted-foreground/70 select-none">
             {METADATA_SUMMARY_PLACEHOLDER}
           </span>
