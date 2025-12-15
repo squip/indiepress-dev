@@ -340,18 +340,22 @@ export default function ArticleMarkdownEditor({
       const protectedNodes = [titleNode, summaryNode].filter(
         (node): node is { from: number; to: number; node: any } => Boolean(node)
       )
-      const overlapsProtected = protectedNodes.some(
-        (node) => from < node.to && to > node.from
-      )
-      if (overlapsProtected) {
+      const overlapping = protectedNodes.filter((node) => from < node.to && to > node.from)
+
+      // If selection is non-empty, allow edits entirely inside a single metadata node;
+      // block if it crosses/erases boundaries or spans multiple metadata nodes.
+      if (!empty && overlapping.length) {
+        const single = overlapping.length === 1 ? overlapping[0] : null
+        if (single && from > single.from && to < single.to) {
+          return false
+        }
         event.preventDefault()
         return true
       }
+
       if (!empty) return false
-      const role =
-        (($from.parent?.attrs?.metadataRole as MetadataRole | undefined) ||
-          inferMetadataRole($from.parent)) ?? null
-      if (role === 'title' || role === 'summary') {
+      const parentIsMetadata = Boolean($from.parent?.attrs?.metadata)
+      if (parentIsMetadata) {
         const offset = $from.parentOffset
         const parentSize = $from.parent?.content?.size ?? 0
         if (
