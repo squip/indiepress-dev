@@ -164,6 +164,7 @@ export default function ArticleMarkdownEditor({
   const hydratedFromInitialJsonRef = useRef(false)
   const keyboardOpenRef = useRef(false)
   const baselineViewportHeight = useRef<number | null>(null)
+  const caretRafRef = useRef<number | null>(null)
   const toolbarScrollRef = useRef<HTMLDivElement | null>(null)
   const toolbarDragRef = useRef<{
     startX: number
@@ -230,6 +231,12 @@ export default function ArticleMarkdownEditor({
     }
   }, [debugEnabled])
 
+  const [isTouchSmallScreen, setIsTouchSmallScreen] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return isTouchDevice() && window.innerWidth <= 1100
+  })
+  const [isTouchInput, setIsTouchInput] = useState(() => isTouchDevice())
+
   const updateScrollShadows = useCallback(() => {
     const el = toolbarScrollRef.current
     if (!el) return
@@ -241,11 +248,52 @@ export default function ArticleMarkdownEditor({
     })
   }, [])
 
-  const [isTouchSmallScreen, setIsTouchSmallScreen] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return isTouchDevice() && window.innerWidth <= 1100
-  })
-  const [isTouchInput, setIsTouchInput] = useState(() => isTouchDevice())
+  const scrollCaretIntoView = useCallback(() => {
+    if (!isTouchSmallScreen) return
+    if (!keyboardOpenRef.current) return
+    const view = editorRef.current?.view
+    if (!view) return
+
+    const viewport = document.querySelector('[data-post-editor-scroll] [data-radix-scroll-area-viewport]') as HTMLElement | null
+    const scrollContainer =
+      viewport ||
+      document.querySelector('[data-post-editor-scroll] [data-viewport]') as HTMLElement | null
+    if (!scrollContainer) return
+
+    const { state } = view
+    const pos = state.selection?.to ?? state.selection?.from ?? 0
+    let coords: { top: number; bottom: number } | null = null
+    try {
+      coords = view.coordsAtPos(pos)
+    } catch (_e) {
+      return
+    }
+    if (!coords) return
+
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const lineTop = coords.top
+    const lineBottom = coords.bottom
+    const topInContainer = lineTop - containerRect.top + scrollContainer.scrollTop
+    const bottomInContainer = lineBottom - containerRect.top + scrollContainer.scrollTop
+
+    const vpHeight = typeof window !== 'undefined' ? window.visualViewport?.height ?? window.innerHeight : scrollContainer.clientHeight
+    const keyboardInset = Math.max(0, (typeof window !== 'undefined' ? window.innerHeight - vpHeight : 0))
+    const safePadding = 24 + keyboardInset + keyboardOffset
+    const visibleTop = scrollContainer.scrollTop
+    const visibleBottom = scrollContainer.scrollTop + scrollContainer.clientHeight - safePadding
+
+    if (bottomInContainer > visibleBottom) {
+      scrollContainer.scrollTo({
+        top: bottomInContainer - scrollContainer.clientHeight + safePadding,
+        behavior: 'smooth'
+      })
+    } else if (topInContainer < visibleTop) {
+      scrollContainer.scrollTo({
+        top: topInContainer - 12,
+        behavior: 'smooth'
+      })
+    }
+  }, [isTouchSmallScreen, keyboardOffset])
 
   const updateDesktopToolbarOffset = useCallback(() => {
     if (typeof document === 'undefined' || isTouchSmallScreen) return
@@ -671,6 +719,8 @@ export default function ArticleMarkdownEditor({
       onJsonChange?.(editor.getJSON())
       recomputeMetadataUi(editor.state, 'onUpdate')
       notifyMetadataChange(editor.state.doc, 'onUpdate')
+      if (caretRafRef.current) cancelAnimationFrame(caretRafRef.current)
+      caretRafRef.current = requestAnimationFrame(scrollCaretIntoView)
       debugLog('update', {
         markdownLength: markdown?.length ?? 0,
         bodyMarkdownLength: bodyMarkdown?.length ?? 0,
@@ -679,11 +729,15 @@ export default function ArticleMarkdownEditor({
     },
     onSelectionUpdate: ({ editor }) => {
       recomputeMetadataUi(editor.state, 'selection')
+      if (caretRafRef.current) cancelAnimationFrame(caretRafRef.current)
+      caretRafRef.current = requestAnimationFrame(scrollCaretIntoView)
     },
     onFocus() {
       setHasFocus(true)
       recomputeMetadataUi(editor?.state, 'focus')
       debugLog('focus')
+      if (caretRafRef.current) cancelAnimationFrame(caretRafRef.current)
+      caretRafRef.current = requestAnimationFrame(scrollCaretIntoView)
     },
     onBlur() {
       setHasFocus(false)
