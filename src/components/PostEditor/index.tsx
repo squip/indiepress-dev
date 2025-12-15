@@ -31,15 +31,7 @@ import ArticleContent from './ArticleContent'
 import Title from './Title'
 import { cn } from '@/lib/utils'
 
-export default function PostEditor({
-  defaultContent = '',
-  parentEvent,
-  open,
-  setOpen,
-  openFrom,
-  defaultTab = 'post',
-  articleOptions
-}: {
+export type PostEditorProps = {
   defaultContent?: string
   parentEvent?: Event
   open: boolean
@@ -51,11 +43,46 @@ export default function PostEditor({
     extraTags?: string[][]
     onPublish?: (draftEvent: any, options: { isDraft: boolean; relayUrls: string[] }) => Promise<void>
   }
-}) {
+  tabPreset?: 'default' | 'personal'
+}
+
+export default function PostEditor({
+  defaultContent = '',
+  parentEvent,
+  open,
+  setOpen,
+  openFrom,
+  defaultTab = 'post',
+  articleOptions,
+  tabPreset = 'default'
+}: PostEditorProps) {
   const { isSmallScreen } = useScreenSize()
   const { t } = useTranslation()
-  const canToggleTabs = !parentEvent
-  const [tab, setTab] = useState<'post' | 'article'>(parentEvent ? 'post' : defaultTab)
+  const tabsConfig = useMemo(() => {
+    if (parentEvent) {
+      return [{ value: 'post' as const, label: t('New Post') }]
+    }
+    if (tabPreset === 'personal') {
+      return [{ value: 'article' as const, label: t('New Personal Note') }]
+    }
+    return [
+      { value: 'post' as const, label: t('New Post') },
+      { value: 'article' as const, label: t('New Article') }
+    ]
+  }, [parentEvent, tabPreset, t])
+
+  const [tab, setTab] = useState<'post' | 'article'>(
+    parentEvent ? 'post' : tabsConfig[0]?.value ?? defaultTab
+  )
+
+  useEffect(() => {
+    const first = tabsConfig[0]?.value
+    if (first && tab !== first && !tabsConfig.find((t) => t.value === tab)) {
+      setTab(first)
+    }
+  }, [tabsConfig, tab])
+
+  const canToggleTabs = !parentEvent && tabsConfig.length > 1
 
   // Replies/quotes should never switch into article mode
   useEffect(() => {
@@ -140,6 +167,7 @@ export default function PostEditor({
   const renderTabs = (variant: 'sheet' | 'dialog') => {
     const TabsWrapper = variant === 'sheet' ? SheetHeader : DialogHeader
     const TitleWrapper = variant === 'sheet' ? SheetTitle : DialogTitle
+    const singleLabel = tabsConfig.length === 1 ? tabsConfig[0]?.label : null
     return (
       <TabsWrapper className="space-y-3">
         {canToggleTabs ? (
@@ -153,31 +181,34 @@ export default function PostEditor({
                 data-post-editor-tabs
                 className="bg-transparent p-0 h-auto gap-6 justify-start w-full"
               >
-                <TabsTrigger
-                  value="post"
-                  className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                >
-                  {t('New Post')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="article"
-                  className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
-                >
-                  {t('New Article')}
-                </TabsTrigger>
+                {tabsConfig.map(({ value, label }) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="rounded-none px-0 py-1 text-base font-semibold shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none text-muted-foreground"
+                  >
+                    {label}
+                  </TabsTrigger>
+                ))}
               </TabsList>
             </div>
           </Tabs>
         ) : (
           <TitleWrapper className={variant === 'sheet' ? 'text-start' : undefined}>
-            <Title parentEvent={parentEvent} tab={tab} />
+            {singleLabel ?? <Title parentEvent={parentEvent} tab={tab} />}
           </TitleWrapper>
         )}
-        {canToggleTabs && (
-          <TitleWrapper className="sr-only">
-            {tab === 'post' ? t('New Post') : t('New Article')}
-          </TitleWrapper>
-        )}
+        {canToggleTabs
+          ? (
+            <TitleWrapper className="sr-only">
+              {tab === 'post' ? t('New Post') : t('New Article')}
+            </TitleWrapper>
+          )
+          : singleLabel && (
+            <TitleWrapper className="sr-only">
+              {singleLabel}
+            </TitleWrapper>
+          )}
       </TabsWrapper>
     )
   }

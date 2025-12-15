@@ -83,6 +83,7 @@ const NotepadPage = forwardRef((_, ref) => {
         open={openComposer}
         setOpen={setOpenComposer}
         defaultTab="article"
+        tabPreset="personal"
         articleOptions={{
           extraTags: pubkey ? [['t', `notepad:${pubkey}`]] : [],
           onPublish: async (draftEvent, { isDraft, relayUrls }) => {
