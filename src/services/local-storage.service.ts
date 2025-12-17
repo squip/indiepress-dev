@@ -58,6 +58,8 @@ class LocalStorageService {
   private enableSingleColumnLayout: boolean = false
   private linkPreviewMode: TLinkPreviewMode = LINK_PREVIEW_MODE.ENABLED
   private favoriteListsMap: Record<string, string[]> = {}
+  private favoriteGroupsMap: Record<string, string[]> = {}
+  private groupDiscoveryRelays: string[] = []
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -199,6 +201,25 @@ class LocalStorageService {
         this.favoriteListsMap = Array.isArray(parsed) ? { _global: parsed } : parsed
       } catch {
         this.favoriteListsMap = {}
+      }
+    }
+
+    const favoriteGroupsMapStr = window.localStorage.getItem(StorageKey.FAVORITE_GROUPS)
+    if (favoriteGroupsMapStr) {
+      try {
+        const parsed = JSON.parse(favoriteGroupsMapStr)
+        this.favoriteGroupsMap = Array.isArray(parsed) ? { _global: parsed } : parsed
+      } catch {
+        this.favoriteGroupsMap = {}
+      }
+    }
+
+    const groupDiscoveryRelaysStr = window.localStorage.getItem(StorageKey.GROUP_DISCOVERY_RELAYS)
+    if (groupDiscoveryRelaysStr) {
+      try {
+        this.groupDiscoveryRelays = JSON.parse(groupDiscoveryRelaysStr)
+      } catch {
+        this.groupDiscoveryRelays = []
       }
     }
 
@@ -586,6 +607,45 @@ class LocalStorageService {
     const key = pubkey || '_global'
     const currentFavorites = this.favoriteListsMap[key] || []
     return currentFavorites.includes(listKey)
+  }
+
+  getFavoriteGroups(pubkey?: string | null) {
+    const key = pubkey || '_global'
+    return this.favoriteGroupsMap[key] || []
+  }
+
+  addFavoriteGroup(groupKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteGroupsMap[key] || []
+    if (!currentFavorites.includes(groupKey)) {
+      this.favoriteGroupsMap[key] = [...currentFavorites, groupKey]
+      window.localStorage.setItem(
+        StorageKey.FAVORITE_GROUPS,
+        JSON.stringify(this.favoriteGroupsMap)
+      )
+    }
+  }
+
+  removeFavoriteGroup(groupKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteGroupsMap[key] || []
+    this.favoriteGroupsMap[key] = currentFavorites.filter((k) => k !== groupKey)
+    window.localStorage.setItem(StorageKey.FAVORITE_GROUPS, JSON.stringify(this.favoriteGroupsMap))
+  }
+
+  isFavoriteGroup(groupKey: string, pubkey?: string | null) {
+    const key = pubkey || '_global'
+    const currentFavorites = this.favoriteGroupsMap[key] || []
+    return currentFavorites.includes(groupKey)
+  }
+
+  getGroupDiscoveryRelays() {
+    return this.groupDiscoveryRelays
+  }
+
+  setGroupDiscoveryRelays(relays: string[]) {
+    this.groupDiscoveryRelays = relays
+    window.localStorage.setItem(StorageKey.GROUP_DISCOVERY_RELAYS, JSON.stringify(relays))
   }
 }
 

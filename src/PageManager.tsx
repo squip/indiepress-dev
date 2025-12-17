@@ -32,6 +32,7 @@ import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
 import SettingsPage from './pages/primary/SettingsPage'
 import NotepadPage from './pages/primary/NotepadPage'
+import GroupsPage from './pages/primary/GroupsPage'
 import { NotificationProvider } from './providers/NotificationProvider'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 import { useTheme } from './providers/ThemeProvider'
@@ -64,6 +65,7 @@ const PRIMARY_PAGE_REF_MAP = {
   home: createRef<TPageRef>(),
   conversations: createRef<TPageRef>(),
   explore: createRef<TPageRef>(),
+  groups: createRef<TPageRef>(),
   lists: createRef<TPageRef>(),
   reads: createRef<TPageRef>(),
   notifications: createRef<TPageRef>(),
@@ -80,6 +82,7 @@ const PRIMARY_PAGE_MAP = {
   home: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.home} />,
   conversations: <ConversationListPage ref={PRIMARY_PAGE_REF_MAP.conversations} />,
   explore: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.explore} />,
+  groups: <GroupsPage ref={PRIMARY_PAGE_REF_MAP.groups} />,
   lists: <ListsPage ref={PRIMARY_PAGE_REF_MAP.lists} />,
   reads: <ReadsPage ref={PRIMARY_PAGE_REF_MAP.reads} />,
   notifications: <NotificationListPage ref={PRIMARY_PAGE_REF_MAP.notifications} />,

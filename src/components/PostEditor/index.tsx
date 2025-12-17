@@ -44,6 +44,10 @@ export type PostEditorProps = {
     onPublish?: (draftEvent: any, options: { isDraft: boolean; relayUrls: string[] }) => Promise<void>
   }
   tabPreset?: 'default' | 'personal'
+  groupContext?: {
+    groupId: string
+    relay?: string
+  }
 }
 
 export default function PostEditor({
@@ -54,7 +58,8 @@ export default function PostEditor({
   openFrom,
   defaultTab = 'post',
   articleOptions,
-  tabPreset = 'default'
+  tabPreset = 'default',
+  groupContext
 }: PostEditorProps) {
   const { isSmallScreen } = useScreenSize()
   const { t } = useTranslation()
@@ -228,15 +233,16 @@ export default function PostEditor({
           }}
         >
           {parentEvent || tab === 'post' ? (
-            <PostContent
-              defaultContent={defaultContent}
-              parentEvent={parentEvent}
-              close={() => setOpen(false)}
-              openFrom={openFrom}
-              renderSections={({ header, body, footer }) => (
-                <PostEditorFrame
-                  maxHeightClass="max-h-[calc(100vh-140px)]"
-                  header={
+          <PostContent
+            defaultContent={defaultContent}
+            parentEvent={parentEvent}
+            close={() => setOpen(false)}
+            openFrom={openFrom}
+            groupContext={groupContext}
+            renderSections={({ header, body, footer }) => (
+              <PostEditorFrame
+                maxHeightClass="max-h-[calc(100vh-140px)]"
+                header={
                     <>
                       {renderTabs('sheet')}
                       {header ? <div>{header}</div> : null}
@@ -292,6 +298,7 @@ export default function PostEditor({
             parentEvent={parentEvent}
             close={() => setOpen(false)}
             openFrom={openFrom}
+            groupContext={groupContext}
             renderSections={({ header, body, footer }) => (
               <PostEditorFrame
                 maxHeightClass="max-h-[calc(100vh-160px)]"

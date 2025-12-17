@@ -33,12 +33,17 @@ export default function PostContent({
   parentEvent,
   close,
   openFrom,
+  groupContext,
   renderSections
 }: {
   defaultContent?: string
   parentEvent?: Event
   close: () => void
   openFrom?: string[]
+  groupContext?: {
+    groupId: string
+    relay?: string
+  }
   renderSections: (sections: {
     header: React.ReactNode | null
     body: React.ReactNode
@@ -78,7 +83,8 @@ export default function PostContent({
       !posting &&
       !uploadProgresses.length &&
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
-      (!isProtectedEvent || additionalRelayUrls.length > 0)
+      (!isProtectedEvent || additionalRelayUrls.length > 0) &&
+      (!groupContext || !!groupContext.groupId)
     )
   }, [
     pubkey,
@@ -88,7 +94,8 @@ export default function PostContent({
     isPoll,
     pollCreateData,
     isProtectedEvent,
-    additionalRelayUrls
+    additionalRelayUrls,
+    groupContext
   ])
 
   useEffect(() => {
@@ -150,8 +157,17 @@ export default function PostContent({
                   isNsfw
                 })
 
+        if (groupContext?.groupId) {
+          draftEvent.tags = draftEvent.tags || []
+          draftEvent.tags.push(['h', groupContext.groupId])
+        }
+
         const newEvent = await publish(draftEvent, {
-          specifiedRelayUrls: isProtectedEvent ? additionalRelayUrls : undefined,
+          specifiedRelayUrls: groupContext?.relay
+            ? [groupContext.relay]
+            : isProtectedEvent
+              ? additionalRelayUrls
+              : undefined,
           additionalRelayUrls: isPoll ? pollCreateData.relays : additionalRelayUrls,
           minPow
         })
@@ -196,14 +212,21 @@ export default function PostContent({
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
   }
 
-  // The textarea already includes its own Edit/Preview toggle; keep header empty to avoid duplication.
   const header = parentEvent ? null : (
-    <Tabs value={view} onValueChange={(v) => setView(v as 'edit' | 'preview')}>
-      <TabsList>
-        <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
-        <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
-      </TabsList>
-    </Tabs>
+    <div className="flex items-center justify-between gap-2">
+      <Tabs value={view} onValueChange={(v) => setView(v as 'edit' | 'preview')}>
+        <TabsList>
+          <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
+          <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {groupContext?.groupId && (
+        <div className="text-xs text-muted-foreground truncate">
+          {t('Posting to')} <span className="font-semibold">{groupContext.groupId}</span>
+          {groupContext.relay ? ` • ${groupContext.relay}` : ''}
+        </div>
+      )}
+    </div>
   )
 
   const body = (
@@ -289,7 +312,7 @@ export default function PostContent({
 
   const footer = (
     <div className="space-y-2">
-      {!isPoll && (
+      {!isPoll && !groupContext && (
         <PostRelaySelector
           setIsProtectedEvent={setIsProtectedEvent}
           setAdditionalRelayUrls={setAdditionalRelayUrls}

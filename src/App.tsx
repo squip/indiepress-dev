@@ -28,6 +28,7 @@ import { ZapProvider } from '@/providers/ZapProvider'
 import { MessengerProvider } from '@/providers/MessengerProvider'
 import { NotepadProvider } from '@/providers/NotepadProvider'
 import { PageManager } from './PageManager'
+import { GroupsProvider } from './providers/GroupsProvider'
 
 export default function App(): JSX.Element {
   return (
@@ -47,20 +48,22 @@ export default function App(): JSX.Element {
                             <UserTrustProvider>
                             <ListsProvider>
                               <BookmarksProvider>
-                                <PinListProvider>
-                                  <FeedProvider>
-                                    <ReplyProvider>
-                                      <MediaUploadServiceProvider>
-                                        <KindFilterProvider>
-                                          <GroupedNotesProvider>
-                                            <MessengerProvider>
-                                              <NotepadProvider>
-                                                <PageManager />
-                                              </NotepadProvider>
-                                            </MessengerProvider>
-                                            <Toaster />
-                                            <LinkPreviewHoverUI />
-                                          </GroupedNotesProvider>
+                        <PinListProvider>
+                          <FeedProvider>
+                            <ReplyProvider>
+                              <MediaUploadServiceProvider>
+                                <KindFilterProvider>
+                                  <GroupedNotesProvider>
+                                    <MessengerProvider>
+                                      <NotepadProvider>
+                                        <GroupsProvider>
+                                          <PageManager />
+                                        </GroupsProvider>
+                                      </NotepadProvider>
+                                    </MessengerProvider>
+                                    <Toaster />
+                                    <LinkPreviewHoverUI />
+                                  </GroupedNotesProvider>
                                         </KindFilterProvider>
                                       </MediaUploadServiceProvider>
                                     </ReplyProvider>

@@ -41,6 +41,7 @@ class ClientService extends EventTarget {
   signer?: ISigner
   pubkey?: string
   followings?: Set<string>
+  private authCache = new Map<string, number>()
 
   private trendingNotesCache: NostrEvent[] | null = null
 
@@ -134,6 +135,16 @@ class ClientService extends EventTarget {
     return relays
   }
 
+  private async ensureAuth(url: string) {
+    if (!this.signer) {
+      throw new Error("<not logged in, can't auth to relay>")
+    }
+    const relay = await pool.ensureRelay(url)
+    const evt = await relay.auth((authEvt: EventTemplate) => this.signer!.signEvent(authEvt))
+    this.authCache.set(url, Date.now())
+    return evt
+  }
+
   async publishEvent(relayUrls: string[], event: NostrEvent) {
     const uniqueRelayUrls = Array.from(new Set(relayUrls))
     await new Promise<void>((resolve, reject) => {
@@ -146,24 +157,26 @@ class ClientService extends EventTarget {
           const that = this
           const relay = await pool.ensureRelay(url)
           relay.publishTimeout = 10_000 // 10s
-          return relay
-            .publish(event)
-            .then(() => {
+          const publishOnce = async () => {
+            return relay.publish(event).then(() => {
               this.trackEventSeenOn(event.id, relay)
               successCount++
             })
-            .catch((error) => {
-              if (
-                error instanceof Error &&
-                error.message.startsWith('auth-required') &&
-                !!that.signer
-              ) {
-                return relay
-                  .auth((authEvt: EventTemplate) => that.signer!.signEvent(authEvt))
-                  .then(() => relay.publish(event))
-              } else {
-                errors.push({ url, error })
+          }
+
+          return publishOnce()
+            .catch(async (error) => {
+              const msg = error instanceof Error ? error.message : String(error)
+              if (msg.startsWith('auth-required') && that.signer) {
+                try {
+                  await that.ensureAuth(url)
+                  return publishOnce()
+                } catch (err) {
+                  errors.push({ url, error: err })
+                  return
+                }
               }
+              errors.push({ url, error })
             })
             .finally(() => {
               // If one third of the relays have accepted the event, consider it a success
@@ -367,37 +380,37 @@ class ClientService extends EventTarget {
                   resolve(events)
                   events = []
                 },
-                onauth: (async (authEvt) => {
-                  // already logged in
-                  if (this.signer) {
-                    const evt = await this.signer!.signEvent(authEvt)
-                    if (!evt) {
-                      throw new Error('sign event failed')
-                    }
-                    return evt as VerifiedEvent
-                  }
+        onauth: (async (authEvt) => {
+          // already logged in
+          if (this.signer) {
+            const evt = await this.signer!.signEvent(authEvt)
+            if (!evt) {
+              throw new Error('sign event failed')
+            }
+            return evt as VerifiedEvent
+          }
 
-                  // open login dialog
-                  if (startLogin) {
-                    startLogin()
-                  }
+          // open login dialog
+          if (startLogin) {
+            startLogin()
+          }
 
-                  throw new Error(
-                    "<not logged in, can't auth to relay during this.subscribeTimeline>"
-                  )
-                }) as (event: EventTemplate) => Promise<VerifiedEvent>,
-                onclose(reasons) {
-                  if (onClose) {
-                    for (let i = 0; i < reasons.length; i++) {
-                      const reason = reasons[i]
-                      onClose(urls[i], reason)
-                    }
-                  }
-                  resolve(events)
-                }
-              }
-            )
-          })
+          throw new Error(
+            "<not logged in, can't auth to relay during this.subscribeTimeline>"
+          )
+        }) as (event: EventTemplate) => Promise<VerifiedEvent>,
+        onclose(reasons) {
+          if (onClose) {
+            for (let i = 0; i < reasons.length; i++) {
+              const reason = reasons[i]
+              onClose(urls[i], reason)
+            }
+          }
+          resolve(events)
+        }
+      }
+    )
+  })
 
     if (localFilters.length > 0 && relayRequests.length > 0) {
       // if both exist, assume localFilters will load much faster and handle they first

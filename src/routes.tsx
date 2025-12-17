@@ -26,6 +26,7 @@ import ListsIndexPage from './pages/secondary/ListsIndexPage'
 import ListPage from './pages/secondary/ListPage'
 import ListEditorPage from './pages/secondary/ListEditorPage'
 import NotepadNotePage from './pages/secondary/NotepadNotePage'
+import GroupPage from './pages/secondary/GroupPage'
 
 const ROUTES = [
   { path: '/notes', element: <NoteListPage /> },
@@ -54,7 +55,8 @@ const ROUTES = [
   { path: '/lists/create', element: <ListEditorPage /> },
   { path: '/lists/:id', element: <ListPage listId="" /> },
   { path: '/lists/:id/edit', element: <ListEditorPage listId="" /> },
-  { path: '/notepad/:id', element: <NotepadNotePage /> }
+  { path: '/notepad/:id', element: <NotepadNotePage /> },
+  { path: '/groups/:id', element: <GroupPage id="" /> }
 ]
 
 export const routes = ROUTES.map(({ path, element }) => ({

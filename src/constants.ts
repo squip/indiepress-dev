@@ -54,6 +54,8 @@ export const StorageKey = {
   ENABLE_SINGLE_COLUMN_LAYOUT: 'enableSingleColumnLayout',
   SHOW_LINK_PREVIEWS: 'showLinkPreviews',
   FAVORITE_LISTS: 'favoriteLists',
+  FAVORITE_GROUPS: 'favoriteGroups',
+  GROUP_DISCOVERY_RELAYS: 'groupDiscoveryRelays',
   HIDE_UNTRUSTED_EVENTS: 'hideUntrustedEvents' // deprecated
 }
 
@@ -61,7 +63,12 @@ export const ApplicationDataKey = {
   NOTIFICATIONS_SEEN_AT: 'seen_notifications_at'
 }
 
-export const BIG_RELAY_URLS = ['wss://relay.damus.io/', 'wss://relay.primal.net/', 'wss://nos.lol/']
+export const BIG_RELAY_URLS = [
+  'wss://relay.damus.io/',
+  'wss://relay.primal.net/',
+  'wss://nos.lol/',
+  'wss://hyptertuna.com/relay'
+]
 
 export const SEARCHABLE_RELAY_URLS = ['wss://relay.nostr.band/', 'wss://search.nos.today/']
 
